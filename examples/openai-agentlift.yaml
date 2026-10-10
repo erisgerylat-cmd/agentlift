@@ -1,0 +1,40 @@
+version: 1
+kind: extension-impact
+
+subject:
+  runner:
+    protocol: jsonl
+    command: ["node", "../dist/runners/openai.js"]
+  model:
+    provider: openai-compatible
+    baseUrlEnv: MODEL_BASE_URL
+    apiKeyEnv: MODEL_API_KEY
+    name: replace-with-your-tool-capable-model
+    temperature: 0
+    maxTokens: 256
+    maxTurns: 4
+    requestTimeoutMs: 15000
+
+candidate:
+  type: mcp
+  name: fake-review
+  transport: stdio
+  command: ["node", "./fake-mcp.mjs"]
+  envAllowlist: []
+
+suite:
+  file: ./openai-tasks.yaml
+
+execution:
+  repeats: 2
+  order: ab-ba-balanced
+  timeoutMs: 60000
+
+security:
+  envAllowlist: []
+  maxOutputBytes: 1048576
+  network: inherit
+
+storage:
+  capture: redacted
+  output: ../.agentlift/openai

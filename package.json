@@ -12,12 +12,15 @@
     "dev": "tsx src/cli.ts",
     "test": "tsx --test test/**/*.test.ts",
     "check": "npm run build && npm test",
-    "demo": "tsx src/cli.ts impact --config examples/agentlift.yaml"
+    "demo": "tsx src/cli.ts impact --config examples/agentlift.yaml",
+    "impact:openai": "npm run build && node dist/cli.js impact --config examples/openai-agentlift.yaml"
   },
   "engines": {
     "node": ">=22"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "ajv": "8.20.0",
     "yaml": "^2.8.1",
     "zod": "^4.1.12"
   },

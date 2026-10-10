@@ -847,6 +847,23 @@ MVP supports one model-provider contract:
 
 AgentLift does not proxy or store the API key.
 
+The first reference runner uses non-streaming Chat Completions with function
+tools (`POST <base-url>/chat/completions`). It supports one stdio MCP through
+the official SDK and uses the existing Generic Command JSONL contract.
+The task prompt and tool results are the model inputs; the final text is written
+to a new workspace `result.txt`. No implicit repository reading or editing is provided.
+
+Optional model settings are `temperature`, `maxTokens` (per request, default
+2048), `maxTurns` (default 8), and `requestTimeoutMs` (default 30000).
+The outer execution timeout still caps the run. Model usage and returned model
+identity are recorded as `model.usage`; absent counts remain `null`.
+No price estimates, automatic HTTP retries, or redirects are supported.
+Model credentials are not automatically inherited by MCP.
+
+The runnable sample is `examples/openai-agentlift.yaml`; the task fixture is
+synthetic. Acceptance currently uses a local simulated provider plus real stdio
+processes. Live-provider compatibility remains an external validation milestone.
+
 ## 18. MCP Lifecycle
 
 For every candidate run:

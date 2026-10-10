@@ -36,6 +36,7 @@ Candidate: 相同 Agent + Model + Tasks，仅启用待测扩展
 项目处于早期开发阶段，已经完成 W1 技术 Spike 和一个可离线运行的最小垂直闭环：
 
 - Generic Command Agent；
+- OpenAI-compatible 文本任务参考 Runner（本地 HTTP/stdio 联调已通过）；
 - stdio MCP Extension；
 - YAML 任务集；
 - 确定性命令验证器；
@@ -148,8 +149,9 @@ run.end
 ```
 
 AgentLift 会过滤 Runtime 重复产生的 `run.start`、`validation` 和 `run.end`，
-再生成顺序稳定的规范化事件。复杂的语义 Trace 对齐、模型 Token 事件和文件变更
-事件尚未实现。
+再生成顺序稳定的规范化事件。OpenAI-compatible 参考 Runner 额外输出 `model.usage`
+事件，记录 Provider 返回的 Token 数与模型身份；缺失指标为 `null`。复杂的语义
+Trace 对齐、Token 成本换算和文件变更事件尚未实现。
 
 ## 配置文件
 
@@ -292,6 +294,57 @@ Smoke 命令仍以零退出。实验配置错误、重复 Case ID、不安全 Fi
 
 `runtime.agentStatus` 保留可解析的 Agent 终态，和 AgentLift 最终 `outcome` 分开。
 
+## OpenAI-compatible 参考 Runner
+
+参考 Runner 通过现有 `GenericCommandRuntime` 接入。它支持文本问答任务：将任务
+Prompt 发送给模型，按需调用 Candidate MCP，再把最终文本写入临时工作区的
+`result.txt`，供命令验证器检查。它不会自动读取仓库文件，也不提供 Shell 或文件编辑
+工具，适用于先验证模型、MCP 与确定性验证器的连接是否正确。
+
+### 运行方式
+
+1. 在 Shell 中配置 `MODEL_BASE_URL` 和 `MODEL_API_KEY`。Base URL 是 Provider
+   的 API 前缀，例如其 `/v1` 地址；不要把凭证值写进 YAML。
+2. 打开 [examples/openai-agentlift.yaml](./examples/openai-agentlift.yaml)，
+   将 `subject.model.name` 改为支持函数工具调用的模型名称。
+3. 执行 `npm run impact:openai`，自动构建后运行模型实验。
+
+该命令会把 Prompt 和工具结果发送给所配置的 Provider，可能产生模型费用。
+示例使用 Fake MCP 和 [合成任务集](./examples/openai-tasks.yaml)，用于检查链路；
+其提升值不能证明真实 MCP 的产品收益。结果写入 `.agentlift/openai/results.json`。
+原有 `npm run demo` 仍完全离线，不需要模型凭证。
+
+### 接口与限制
+
+- 入口为 `dist/runners/openai.js`；请求采用非流式
+  `POST <MODEL_BASE_URL>/chat/completions`。
+- Baseline 不发送 `tools`；Candidate 通过官方 MCP SDK 连接一个 stdio Server，
+  完成初始化及工具发现，支持 `tools/list` 分页。
+- MCP 工具名转换为模型函数别名，调用时映射回原名；参数在调用 MCP 前经过 JSON
+  Schema 校验，不合法的调用会作为工具错误返回模型。
+- `isError` 工具结果允许模型重试或调整答案；MCP 传输/JSON-RPC 故障使运行无效。
+- 最终答案只写入新的 `result.txt`，已有文件不覆盖，符号链接会被拒绝。
+- 默认最多 8 轮模型请求；耗尽轮数为任务失败，不伪造答案。
+- 禁止自动重试付费请求和 HTTP 重定向；Provider HTTP 错误正文不会写入日志。
+- HTTP 响应、Runner 输入、MCP 单条消息/工具结果和累计 stderr 上限为 1 MiB；
+  累计模型请求体上限为 4 MiB。最多发现 128 个工具、16 页，每次模型响应最多 32 次调用。
+
+`subject.model` 可选字段：
+
+| 字段 | 默认值 | 说明 |
+|---|---|---|
+| `temperature` | 不发送 | 两组共用的采样参数 |
+| `maxTokens` | `2048` | 每次请求的 `max_tokens`，不是整个实验的总预算 |
+| `maxTurns` | `8` | 每次运行最多请求模型的轮数 |
+| `requestTimeoutMs` | `30000` | 每个 HTTP/MCP 请求超时；外层 `execution.timeoutMs` 仍限制整次运行 |
+
+模型凭证只在 Agent 中读取，不自动传给 MCP。MCP 继承运行目录变量和命令搜索路径，
+以及 `candidate.envAllowlist` 显式列出的变量。采集事件会脱敏已知凭证值；模型请求
+正文仍包含完成任务所需的数据，因此应选择允许处理这些数据的 Provider。
+
+当前验证使用本地模拟 Provider 和真实 stdio 子进程，尚未完成付费模型实测。
+Responses API、流式输出、多模态、多个 MCP Server 和通用仓库编辑均不在首版范围。
+
 ## 隔离与安全边界
 
 当前已实现：
@@ -327,6 +380,12 @@ src/
 ├── process.ts
 ├── security.ts
 ├── types.ts
+├── models/
+│   ├── config.ts
+│   └── openai-compatible.ts
+├── runners/
+│   ├── openai.ts
+│   └── mcp-tools.ts
 ├── analysis/
 │   └── summary.ts
 ├── runtimes/
@@ -338,6 +397,8 @@ src/
 
 examples/
 ├── agentlift.yaml
+├── openai-agentlift.yaml
+├── openai-tasks.yaml
 ├── tasks.yaml
 ├── fake-agent.mjs
 ├── fake-mcp.mjs
@@ -345,6 +406,7 @@ examples/
 
 test/
 ├── failure-evidence.test.ts
+├── openai-runner.test.ts
 └── impact.test.ts
 ```
 
@@ -356,6 +418,8 @@ test/
 - `process.ts`：命令执行、超时、输出限制和进程树清理；
 - `security.ts`：路径检查、临时环境和 Secret 脱敏。
 - `analysis/summary.ts`：按 Case/轮次配对，记录排除原因并计算有效配对的观察值。
+- `models/`：模型配置与有边界的 Chat Completions 请求；
+- `runners/`：参考 Agent 的模型调用循环与 MCP 工具管理。
 
 ## 开发命令
 
@@ -385,7 +449,9 @@ npm run demo
 - Agent 失败终态、命令验证器拒绝与基础设施故障的区分；
 - 有效配对分母、零有效样本、结果落盘和 CLI 退出码；
 - 验证器超时/信号/输出溢出与输入管道提前关闭；
-- 重复 Case ID 拒绝及临时工作区清理。
+- 重复 Case ID 拒绝及临时工作区清理；
+- 参考 Runner 的真实 HTTP/stdio 成对实验、工具参数校验和凭证隔离；
+- Provider 失败、请求超时、响应大小限制、重定向拒绝和工具循环终止。
 
 ## 当前限制
 
@@ -393,7 +459,7 @@ npm run demo
 - 只支持 stdio MCP；
 - 只支持 YAML 任务集和命令验证器；
 - 尚未计算 Wilson 区间、Bootstrap 区间或 McNemar 检验；
-- 尚未采集真实模型 Token、成本和版本漂移；
+- 已采集 Provider 返回的 Token 与模型名，但尚未计算成本或检测模型版本漂移；
 - 尚未实现 Trace Diff、证据包、历史比较和 CI 门禁；
 - 尚未提供原生 Claude Code、Codex、Qoder 或 Trae Adapter；
 - 尚未支持 Skill 影响评估。

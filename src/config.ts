@@ -4,6 +4,8 @@ import path from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
+import { modelConfigSchema } from "./models/config.js";
+
 const commandSchema = z.array(z.string().min(1)).min(1);
 
 const impactConfigSchema = z
@@ -19,14 +21,7 @@ const impactConfigSchema = z
             cwd: z.string().optional(),
           })
           .strict(),
-        model: z
-          .object({
-            provider: z.literal("openai-compatible"),
-            baseUrlEnv: z.string().min(1),
-            apiKeyEnv: z.string().min(1),
-            name: z.string().min(1),
-          })
-          .strict(),
+        model: modelConfigSchema,
       })
       .strict(),
     candidate: z

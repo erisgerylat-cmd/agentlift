@@ -1,3 +1,5 @@
+import type { ModelConfig } from "./models/config.js";
+
 export type Condition = "baseline" | "candidate";
 export type RunOutcome =
   | "task_success"
@@ -32,9 +34,7 @@ export interface RunStartMessage {
     id: string;
     prompt: string;
   };
-  model: {
-    name: string;
-  };
+  model: Pick<ModelConfig, "name"> & Partial<Omit<ModelConfig, "name">>;
   mcpConfig: {
     servers: McpServerConfig[];
   } | null;

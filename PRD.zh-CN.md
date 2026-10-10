@@ -827,6 +827,20 @@ MVP 只支持一种 Provider 契约：
 
 AgentLift 不代理或存储 API Key。
 
+首个参考 Runner 使用非流式 Chat Completions 函数工具接口
+（`POST <base-url>/chat/completions`），通过官方 SDK 连接一个 stdio MCP，
+复用现有 Generic Command JSONL 契约。模型输入为任务 Prompt 与工具结果，
+最终文本写入工作区新建的 `result.txt`，不隐式读取或编辑仓库文件。
+
+模型可选参数为 `temperature`、`maxTokens`（每次请求默认 2048）、
+`maxTurns`（默认 8）和 `requestTimeoutMs`（默认 30000）。
+外层执行超时仍限制整次运行。Provider 返回的模型身份和 Token 数记录为
+`model.usage`，缺失计数为 `null`；不估算价格，不自动重试 HTTP 请求或跟随重定向。
+模型凭证不会自动传递给 MCP。
+
+可运行示例为 `examples/openai-agentlift.yaml`，使用合成任务 Fixture。
+当前验收采用本地模拟 Provider 和真实 stdio 进程，真实 Provider 兼容性仍需外部验证。
+
 ## 18. MCP 生命周期
 
 每次 Candidate 运行：

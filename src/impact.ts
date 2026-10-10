@@ -201,9 +201,7 @@ async function executeRun(
       id: testCase.id,
       prompt: testCase.task,
     },
-    model: {
-      name: config.subject.model.name,
-    },
+    model: config.subject.model,
     mcpConfig,
   };
 
