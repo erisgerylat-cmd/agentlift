@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
 
+import type { ExecutionFailure } from "./types.js";
+
 export interface CommandResult {
   exitCode: number | null;
   stdout: string;
@@ -8,6 +10,7 @@ export interface CommandResult {
   timedOut: boolean;
   stdoutTruncated: boolean;
   stderrTruncated: boolean;
+  failure: ExecutionFailure | null;
 }
 
 export interface RunCommandOptions {
@@ -35,6 +38,29 @@ function terminateProcessTree(pid: number | undefined, signal: NodeJS.Signals) {
   }
 }
 
+function commandFailure(
+  exitCode: number | null,
+  signal: NodeJS.Signals | null,
+  timedOut: boolean,
+  outputExceeded: boolean,
+): ExecutionFailure | null {
+  if (outputExceeded) {
+    return { code: "output_limit", message: "Command output exceeded the byte limit" };
+  }
+  if (timedOut) {
+    return { code: "timeout", message: "Command exceeded its time limit" };
+  }
+  if (exitCode !== 0) {
+    return {
+      code: "process_exit",
+      message: signal
+        ? `Command terminated by ${signal}`
+        : `Command exited with code ${exitCode}`,
+    };
+  }
+  return null;
+}
+
 export async function runCommand(
   options: RunCommandOptions,
 ): Promise<CommandResult> {
@@ -46,7 +72,7 @@ export async function runCommand(
   const startedAt = Date.now();
   const maxOutputBytes = options.maxOutputBytes ?? 1_048_576;
 
-  return await new Promise<CommandResult>((resolve, reject) => {
+  return await new Promise<CommandResult>((resolve) => {
     const child = spawn(program, args, {
       cwd: options.cwd,
       env: options.env ?? process.env,
@@ -61,6 +87,7 @@ export async function runCommand(
     let stderrBytes = 0;
     let stdoutTruncated = false;
     let stderrTruncated = false;
+    let failure: ExecutionFailure | null = null;
     let terminationStarted = false;
     let settled = false;
     let forceKillTimer: NodeJS.Timeout | undefined;
@@ -123,20 +150,19 @@ export async function runCommand(
       terminate();
     }, options.timeoutMs);
 
-    child.once("error", (error) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timeout);
-      if (forceKillTimer) {
-        clearTimeout(forceKillTimer);
-      }
+    child.once("error", () => {
+      // Do not include command arguments or environment values in diagnostics.
+      failure = { code: "spawn_error", message: "Unable to start command" };
       terminateProcessTree(child.pid, "SIGKILL");
-      reject(error);
     });
 
-    child.once("close", (exitCode) => {
+    child.stdin.on("error", () => {
+      if (settled || terminationStarted || failure) return;
+      failure = { code: "stdin_error", message: "Unable to deliver command input" };
+      terminate();
+    });
+
+    child.once("close", (exitCode, signal) => {
       if (settled) {
         return;
       }
@@ -156,6 +182,12 @@ export async function runCommand(
           timedOut,
           stdoutTruncated,
           stderrTruncated,
+          failure: failure ?? commandFailure(
+            exitCode,
+            signal,
+            timedOut,
+            stdoutTruncated || stderrTruncated,
+          ),
         });
       }, 50);
     });

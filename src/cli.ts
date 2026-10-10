@@ -47,6 +47,9 @@ async function main() {
 
   const report = await runImpact(parsed.values.config);
   process.stdout.write(`${formatImpactReport(report)}\n`);
+  if (report.summary.infrastructureFailures > 0) {
+    process.exitCode = 1;
+  }
 }
 
 main().catch((error: unknown) => {

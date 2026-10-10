@@ -27,6 +27,7 @@ npm run demo
 Expected smoke result:
 
 ```text
+Valid pairs: 4; excluded pairs: 0
 Baseline: 2/4 successful
 Candidate: 4/4 successful
 Infrastructure failures: 0
@@ -35,6 +36,32 @@ Decision: INCONCLUSIVE (smoke run; no confidence interval yet)
 ```
 
 The structured result is written to `.agentlift/results.json`.
+
+## Failure Evidence
+
+Command startup, input delivery, timeout, output-limit, process-exit, and JSONL
+protocol failures are recorded per run. Remaining runs continue, and the report
+retains events parsed before the failure. Validators are skipped when the
+Runtime has an infrastructure failure.
+
+The runner must exit with code zero and emit exactly one final `run.end` event,
+with status `completed` or `failed`. An explicit `failed` status or a nonzero
+validator exit is a task failure. A nonzero runner exit, a validator killed by a
+signal, or a malformed/missing/duplicate terminal event is an infrastructure
+failure. Validator timeouts and output overflow also invalidate a run.
+
+Success counts and the observed delta use only **valid pairs**: both conditions
+for the same case and repeat must be free of infrastructure failures.
+`summary.excludedPairs` lists each excluded case/repeat and the affected run,
+condition, stage, and failure reason; all runs remain in `runs`.
+With no valid pairs, `successRateDeltaPp` is `null` and the terminal displays
+`unavailable`. Smoke decisions remain `INCONCLUSIVE`.
+
+The CLI writes its report before returning exit code `1` if any run has an
+infrastructure failure. Deterministic task failures alone do not change the
+smoke command's exit code. Invalid experiment configuration, duplicate case IDs,
+unsafe fixtures, and setup/storage errors remain fatal errors; they are not
+silently converted to task failures.
 
 ## Current Flow
 

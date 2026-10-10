@@ -3,6 +3,7 @@ import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { summarizeImpact } from "./analysis/summary.js";
 import {
   loadImpactConfig,
   loadTaskSuite,
@@ -13,7 +14,10 @@ import type { ExtensionAdapter } from "./extensions/extension-adapter.js";
 import { StdioMcpExtension } from "./extensions/stdio-mcp.js";
 import { runCommand } from "./process.js";
 import { GenericCommandRuntime } from "./runtimes/generic-command.js";
-import type { RuntimeAdapter } from "./runtimes/runtime-adapter.js";
+import type {
+  RuntimeAdapter,
+  RuntimeExecution,
+} from "./runtimes/runtime-adapter.js";
 import {
   assertPathWithin,
   assertSafeFixture,
@@ -57,23 +61,26 @@ async function runValidators(
       maxOutputBytes,
       env,
     });
+    // A validator's numeric nonzero exit is a deterministic rejection.
+    // Signals and transport/resource failures invalidate the experiment pair.
+    const failure =
+      result.failure?.code === "process_exit" && result.exitCode !== null
+        ? null
+        : result.failure;
 
     results.push(
       redactSecrets(
         {
           command,
           exitCode: result.exitCode,
-          success:
-            result.exitCode === 0 &&
-            !result.timedOut &&
-            !result.stdoutTruncated &&
-            !result.stderrTruncated,
+          success: result.exitCode === 0 && failure === null,
           durationMs: result.durationMs,
           timedOut: result.timedOut,
           stdoutTruncated: result.stdoutTruncated,
           stderrTruncated: result.stderrTruncated,
           stdout: result.stdout,
           stderr: result.stderr,
+          failure,
         },
         secretValues,
       ),
@@ -88,12 +95,7 @@ function normalizedEvents(
   runtimeEvents: RunEvent[],
   validators: ValidatorResult[],
   outcome: RunOutcome,
-  runtime: {
-    exitCode: number | null;
-    timedOut: boolean;
-    stdoutTruncated: boolean;
-    stderrTruncated: boolean;
-  },
+  runtime: RuntimeExecution,
 ): RunEvent[] {
   const body = runtimeEvents.filter(
     (event) =>
@@ -111,7 +113,15 @@ function normalizedEvents(
     timedOut: validator.timedOut,
     stdoutTruncated: validator.stdoutTruncated,
     stderrTruncated: validator.stderrTruncated,
+    failure: validator.failure,
   }));
+  if (runtime.failure) {
+    validationEvents.push({
+      type: "validation",
+      status: "skipped",
+      reason: "runtime_infrastructure_failure",
+    });
+  }
 
   return [
     {
@@ -130,35 +140,21 @@ function normalizedEvents(
       timedOut: runtime.timedOut,
       stdoutTruncated: runtime.stdoutTruncated,
       stderrTruncated: runtime.stderrTruncated,
+      failure: runtime.failure,
+      agentStatus: runtime.agentStatus,
     },
   ];
 }
 
 function classifyOutcome(
-  runtime: {
-    exitCode: number | null;
-    timedOut: boolean;
-    stdoutTruncated: boolean;
-    stderrTruncated: boolean;
-  },
+  runtime: RuntimeExecution,
   validators: ValidatorResult[],
 ): RunOutcome {
-  const runtimeFailed =
-    runtime.exitCode !== 0 ||
-    runtime.timedOut ||
-    runtime.stdoutTruncated ||
-    runtime.stderrTruncated;
-  const validatorInfrastructureFailed = validators.some(
-    (validator) =>
-      validator.exitCode === null ||
-      validator.timedOut ||
-      validator.stdoutTruncated ||
-      validator.stderrTruncated,
-  );
-  if (runtimeFailed || validatorInfrastructureFailed) {
+  if (runtime.failure || validators.some((validator) => validator.failure)) {
     return "infrastructure_failure";
   }
-  return validators.every((validator) => validator.success)
+  return runtime.agentStatus === "completed" &&
+    validators.every((validator) => validator.success)
     ? "task_success"
     : "task_failure";
 }
@@ -215,23 +211,26 @@ async function executeRun(
     message,
     env,
   });
-  const validators = await runValidators(
-    testCase.validators.map((validator) => validator.command),
-    workspace,
-    config.execution.timeoutMs,
-    config.security.maxOutputBytes,
-    env,
-    secretValues,
-  );
+  const validators = runtimeResult.failure
+    ? []
+    : await runValidators(
+        testCase.validators.map((validator) => validator.command),
+        workspace,
+        config.execution.timeoutMs,
+        config.security.maxOutputBytes,
+        env,
+        secretValues,
+      );
   const outcome = classifyOutcome(runtimeResult, validators);
   const success = outcome === "task_success";
   const events = redactSecrets(
-    normalizedEvents(message, runtimeResult.events, validators, outcome, {
-      exitCode: runtimeResult.exitCode,
-      timedOut: runtimeResult.timedOut,
-      stdoutTruncated: runtimeResult.stdoutTruncated,
-      stderrTruncated: runtimeResult.stderrTruncated,
-    }),
+    normalizedEvents(
+      message,
+      runtimeResult.events,
+      validators,
+      outcome,
+      runtimeResult,
+    ),
     secretValues,
   );
 
@@ -253,32 +252,9 @@ async function executeRun(
       stdoutTruncated: runtimeResult.stdoutTruncated,
       stderrTruncated: runtimeResult.stderrTruncated,
       stderr: redactSecrets(runtimeResult.stderr, secretValues),
+      failure: runtimeResult.failure,
+      agentStatus: runtimeResult.agentStatus,
     },
-  };
-}
-
-function summarize(runs: RunResult[]): ImpactReport["summary"] {
-  const baseline = runs.filter((run) => run.condition === "baseline");
-  const candidate = runs.filter((run) => run.condition === "candidate");
-  const baselineSuccesses = baseline.filter((run) => run.success).length;
-  const candidateSuccesses = candidate.filter((run) => run.success).length;
-  const infrastructureFailures = runs.filter(
-    (run) => run.outcome === "infrastructure_failure",
-  ).length;
-  const baselineRate =
-    baseline.length === 0 ? 0 : baselineSuccesses / baseline.length;
-  const candidateRate =
-    candidate.length === 0 ? 0 : candidateSuccesses / candidate.length;
-
-  return {
-    totalPairs: Math.min(baseline.length, candidate.length),
-    baselineSuccesses,
-    candidateSuccesses,
-    infrastructureFailures,
-    successRateDeltaPp: Number(
-      ((candidateRate - baselineRate) * 100).toFixed(2),
-    ),
-    decision: "INCONCLUSIVE",
   };
 }
 
@@ -350,7 +326,7 @@ export async function runImpact(configFile: string): Promise<ImpactReport> {
     generatedAt: new Date().toISOString(),
     configPath: config.configPath,
     runs,
-    summary: summarize(runs),
+    summary: summarizeImpact(runs),
   };
 
   await mkdir(config.outputDir, { recursive: true });
@@ -363,22 +339,21 @@ export async function runImpact(configFile: string): Promise<ImpactReport> {
 }
 
 export function formatImpactReport(report: ImpactReport): string {
-  const baselineTotal = report.runs.filter(
-    (run) => run.condition === "baseline",
-  ).length;
-  const candidateTotal = report.runs.filter(
-    (run) => run.condition === "candidate",
-  ).length;
+  const { summary } = report;
+  const delta = summary.successRateDeltaPp === null
+    ? "unavailable (no valid pairs)"
+    : `${summary.successRateDeltaPp}pp`;
 
   return [
     "AgentLift impact smoke report",
     "",
     `Experiment: ${report.experimentId}`,
-    `Pairs: ${report.summary.totalPairs}`,
-    `Baseline: ${report.summary.baselineSuccesses}/${baselineTotal} successful`,
-    `Candidate: ${report.summary.candidateSuccesses}/${candidateTotal} successful`,
-    `Infrastructure failures: ${report.summary.infrastructureFailures}`,
-    `Observed delta: ${report.summary.successRateDeltaPp}pp`,
-    `Decision: ${report.summary.decision} (smoke run; no confidence interval yet)`,
+    `Pairs: ${summary.totalPairs}`,
+    `Valid pairs: ${summary.validPairs}; excluded pairs: ${summary.excludedPairs.length}`,
+    `Baseline: ${summary.baselineSuccesses}/${summary.validPairs} successful`,
+    `Candidate: ${summary.candidateSuccesses}/${summary.validPairs} successful`,
+    `Infrastructure failures: ${summary.infrastructureFailures}`,
+    `Observed delta: ${delta}`,
+    `Decision: ${summary.decision} (smoke run; no confidence interval yet)`,
   ].join("\n");
 }

@@ -185,6 +185,13 @@ export async function loadTaskSuite(
   const parsed = taskSuiteSchema.parse(
     parseYaml(await readFile(suitePath, "utf8")),
   );
+  const caseIds = new Set<string>();
+  for (const testCase of parsed.cases) {
+    if (caseIds.has(testCase.id)) {
+      throw new Error(`Duplicate case id: ${testCase.id}`);
+    }
+    caseIds.add(testCase.id);
+  }
 
   return {
     cases: parsed.cases.map((testCase) => ({

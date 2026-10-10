@@ -4,6 +4,17 @@ export type RunOutcome =
   | "task_failure"
   | "infrastructure_failure";
 
+export interface ExecutionFailure {
+  code:
+    | "spawn_error"
+    | "stdin_error"
+    | "timeout"
+    | "output_limit"
+    | "process_exit"
+    | "protocol_error";
+  message: string;
+}
+
 export interface McpServerConfig {
   name: string;
   transport: "stdio";
@@ -44,6 +55,7 @@ export interface ValidatorResult {
   stderrTruncated: boolean;
   stdout: string;
   stderr: string;
+  failure: ExecutionFailure | null;
 }
 
 export interface RunResult {
@@ -62,15 +74,31 @@ export interface RunResult {
     stdoutTruncated: boolean;
     stderrTruncated: boolean;
     stderr: string;
+    failure: ExecutionFailure | null;
+    agentStatus: "completed" | "failed" | null;
   };
+}
+
+export interface ExcludedPair {
+  caseId: string;
+  repeat: number;
+  reasons: Array<{
+    runId: string;
+    condition: Condition;
+    stage: "runtime" | "validator";
+    validatorIndex?: number;
+    failure: ExecutionFailure;
+  }>;
 }
 
 export interface ImpactSummary {
   totalPairs: number;
+  validPairs: number;
+  excludedPairs: ExcludedPair[];
   baselineSuccesses: number;
   candidateSuccesses: number;
   infrastructureFailures: number;
-  successRateDeltaPp: number;
+  successRateDeltaPp: number | null;
   decision: "INCONCLUSIVE";
 }
 

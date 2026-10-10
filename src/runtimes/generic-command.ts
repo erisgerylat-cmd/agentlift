@@ -13,32 +13,56 @@ export interface GenericCommandRuntimeOptions {
   maxOutputBytes: number;
 }
 
-function parseEvents(stdout: string, allowTrailingPartial: boolean): RunEvent[] {
+function parseEvents(
+  stdout: string,
+  allowTrailingPartial: boolean,
+): Pick<RuntimeExecution, "events" | "failure" | "agentStatus"> {
   const lines = stdout.split(/\r?\n/u);
   if (allowTrailingPartial && !stdout.endsWith("\n")) {
     lines.pop();
   }
 
-  return lines
-    .filter((line) => line.trim().length > 0)
-    .map((line, index) => {
-      let value: unknown;
-      try {
-        value = JSON.parse(line);
-      } catch {
-        throw new Error(`Runner emitted invalid JSONL at line ${index + 1}`);
-      }
+  const events: RunEvent[] = [];
+  const invalid = (message: string): ReturnType<typeof parseEvents> => ({
+    events,
+    agentStatus: null,
+    failure: { code: "protocol_error", message },
+  });
 
-      if (
-        typeof value !== "object" ||
-        value === null ||
-        typeof (value as { type?: unknown }).type !== "string"
-      ) {
-        throw new Error(`Runner event ${index + 1} is missing a string type`);
-      }
+  let agentStatus: RuntimeExecution["agentStatus"] = null;
+  for (const [index, line] of lines.entries()) {
+    if (!line.trim()) continue;
+    if (agentStatus !== null) {
+      return invalid(`Runner emitted data after run.end at line ${index + 1}`);
+    }
+    let value: unknown;
+    try {
+      value = JSON.parse(line);
+    } catch {
+      return invalid(`Runner emitted invalid JSONL at line ${index + 1}`);
+    }
 
-      return value as RunEvent;
-    });
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      Array.isArray(value) ||
+      typeof (value as { type?: unknown }).type !== "string" ||
+      (value as { type: string }).type.length === 0
+    ) {
+      return invalid(`Runner event at line ${index + 1} requires a nonempty type`);
+    }
+    const event = value as RunEvent;
+    if (event.type === "run.end") {
+      if (event.status !== "completed" && event.status !== "failed") {
+        return invalid(`Runner run.end at line ${index + 1} has an invalid status`);
+      }
+      agentStatus = event.status;
+    }
+    events.push(event);
+  }
+
+  if (agentStatus === null) return invalid("Runner did not emit run.end");
+  return { events, agentStatus, failure: null };
 }
 
 export class GenericCommandRuntime implements RuntimeAdapter {
@@ -55,6 +79,7 @@ export class GenericCommandRuntime implements RuntimeAdapter {
       input: `${JSON.stringify(request.message)}\n`,
       env: request.env,
     });
+    const parsed = parseEvents(result.stdout, result.stdoutTruncated);
 
     return {
       exitCode: result.exitCode,
@@ -63,7 +88,10 @@ export class GenericCommandRuntime implements RuntimeAdapter {
       stdoutTruncated: result.stdoutTruncated,
       stderrTruncated: result.stderrTruncated,
       stderr: result.stderr,
-      events: parseEvents(result.stdout, result.stdoutTruncated),
+      events: parsed.events,
+      agentStatus: parsed.agentStatus,
+      // Transport/process failure takes precedence over incomplete JSONL on termination.
+      failure: result.failure ?? parsed.failure,
     };
   }
 }

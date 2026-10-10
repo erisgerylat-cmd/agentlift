@@ -1,4 +1,4 @@
-import type { RunEvent, RunStartMessage } from "../types.js";
+import type { ExecutionFailure, RunEvent, RunStartMessage } from "../types.js";
 
 export interface RuntimeRunRequest {
   message: RunStartMessage;
@@ -13,6 +13,8 @@ export interface RuntimeExecution {
   stderrTruncated: boolean;
   stderr: string;
   events: RunEvent[];
+  failure: ExecutionFailure | null;
+  agentStatus: "completed" | "failed" | null;
 }
 
 export interface RuntimeAdapter {

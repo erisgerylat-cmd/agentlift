@@ -66,6 +66,7 @@ npm run demo
 预期输出：
 
 ```text
+Valid pairs: 4; excluded pairs: 0
 Baseline: 2/4 successful
 Candidate: 4/4 successful
 Infrastructure failures: 0
@@ -81,6 +82,7 @@ Decision: INCONCLUSIVE (smoke run; no confidence interval yet)
 
 ### 如何理解示例结果
 
+- `Valid pairs: 4; excluded pairs: 0`：四个配对的两侧均无基础设施故障；
 - `Baseline: 2/4 successful`：未启用 MCP 的四次运行中，两次通过确定性验证；
 - `Candidate: 4/4 successful`：启用 MCP 后四次运行全部通过；
 - `Infrastructure failures: 0`：没有超时、进程异常或输出溢出等基础设施失败；
@@ -253,11 +255,42 @@ AgentLift 不直接在 fixture 中运行 Agent。每次运行都会创建独立�
 
 | 结果 | 含义 |
 |---|---|
-| `task_success` | Runtime 正常完成，所有确定性验证器通过 |
-| `task_failure` | Runtime 正常完成，但至少一个任务验证器失败 |
-| `infrastructure_failure` | Runtime/验证器超时、异常退出或输出溢出 |
+| `task_success` | Runtime 退出码为零，终态为 `completed`，所有确定性验证器通过 |
+| `task_failure` | Runtime 正常退出且终态为 `failed`，或命令验证器以非零退出码拒绝结果 |
+| `infrastructure_failure` | 启动/输入失败、Runner 非零退出、超时、输出溢出、验证器被信号终止，或 JSONL 协议错误 |
 
-基础设施失败不会伪装成任务失败，后续统计阶段也不能将其按普通失败直接平均。
+Runner 必须输出唯一的最终 `run.end` 事件，`status` 只能是 `completed` 或 `failed`。
+终态缺失、重复、状态非法，或终态后继续输出事件，都属于协议故障。Runner 声明任务
+失败时应以退出码零完成协议；进程非零退出被解释为运行基础设施故障。
+
+进程或协议故障不会中断后续 Case。故障发生前已解析的事件仍保留；Runtime 故障时，
+跳过该次运行的验证器，并写入 `validation` 事件说明跳过原因。
+
+成功次数与提升值只使用**有效配对**：同一 Case、同一重复轮次的 Baseline/Candidate
+必须都没有基础设施故障。任意一侧故障时，两侧都从成功率分母排除，原始结果仍保留在
+`runs`。`summary.validPairs` 记录有效配对数，`summary.excludedPairs` 记录被排除的
+Case、轮次、运行 ID、条件、阶段和失败原因。
+
+没有有效配对时，`successRateDeltaPp` 为 `null`，终端显示 `unavailable`，避免把
+“没有可比较证据”误报成“提升为零”。当前所有 Smoke 决策仍为 `INCONCLUSIVE`。
+
+存在基础设施故障时，CLI 会先写入报告再以退出码 `1` 结束；只有确定性任务失败时，
+Smoke 命令仍以零退出。实验配置错误、重复 Case ID、不安全 Fixture、准备阶段或结果
+存储错误仍会终止命令，不会被静默转换为任务失败。
+
+失败原因在 `runtime.failure` 或 `validators[].failure` 中以 `{code, message}`
+记录，无基础设施错误时为 `null`：
+
+| `code` | 含义 |
+|---|---|
+| `spawn_error` | 无法启动命令 |
+| `stdin_error` | 任务输入无法完整发送给进程 |
+| `timeout` | 超过命令时间限制 |
+| `output_limit` | stdout 或 stderr 超过捕获上限 |
+| `process_exit` | Runner 非零退出，或验证器被信号终止 |
+| `protocol_error` | Runner 输出不符合 JSONL/终态约定 |
+
+`runtime.agentStatus` 保留可解析的 Agent 终态，和 AgentLift 最终 `outcome` 分开。
 
 ## 隔离与安全边界
 
@@ -294,6 +327,8 @@ src/
 ├── process.ts
 ├── security.ts
 ├── types.ts
+├── analysis/
+│   └── summary.ts
 ├── runtimes/
 │   ├── runtime-adapter.ts
 │   └── generic-command.ts
@@ -309,6 +344,7 @@ examples/
 └── fixture/
 
 test/
+├── failure-evidence.test.ts
 └── impact.test.ts
 ```
 
@@ -319,6 +355,7 @@ test/
 - `impact.ts`：实验编排，不承载具体 Agent 或 MCP 注入逻辑；
 - `process.ts`：命令执行、超时、输出限制和进程树清理；
 - `security.ts`：路径检查、临时环境和 Secret 脱敏。
+- `analysis/summary.ts`：按 Case/轮次配对，记录排除原因并计算有效配对的观察值。
 
 ## 开发命令
 
@@ -344,7 +381,11 @@ npm run demo
 - stdout 输出上限；
 - Secret 值及对象键脱敏；
 - fixture 符号链接拒绝；
-- Fake Agent/MCP 正常退出。
+- JSONL 协议故障、进程启动失败与后续任务继续执行；
+- Agent 失败终态、命令验证器拒绝与基础设施故障的区分；
+- 有效配对分母、零有效样本、结果落盘和 CLI 退出码；
+- 验证器超时/信号/输出溢出与输入管道提前关闭；
+- 重复 Case ID 拒绝及临时工作区清理。
 
 ## 当前限制
 
