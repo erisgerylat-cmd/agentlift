@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 import { summarizeImpact } from "./analysis/summary.js";
+import { fixtureDigest, lockEnvironment } from "./evidence/environment.js";
+import { saveBundle } from "./evidence/bundle.js";
 import {
   loadImpactConfig,
   loadTaskSuite,
@@ -239,6 +241,7 @@ async function executeRun(
     condition,
     outcome,
     success,
+    tags: testCase.tags,
     durationMs:
       runtimeResult.durationMs +
       validators.reduce((total, validator) => total + validator.durationMs, 0),
@@ -259,6 +262,16 @@ async function executeRun(
 export async function runImpact(configFile: string): Promise<ImpactReport> {
   const config = await loadImpactConfig(configFile);
   const suite = await loadTaskSuite(config.suitePath);
+  if (suite.cases.length * config.execution.repeats * 2 > config.execution.maxRuns) {
+    throw new Error("Planned runs exceed execution.maxRuns");
+  }
+  for (const testCase of suite.cases) {
+    const relative = path.relative(testCase.fixture.path, config.outputDir);
+    if (!relative.startsWith("..") && !path.isAbsolute(relative)) {
+      throw new Error("Output directory must not be inside a fixture");
+    }
+  }
+  const environment = await lockEnvironment(config, suite);
   const experimentId = randomUUID();
   const workspaceRoot = await mkdtemp(
     path.join(os.tmpdir(), "agentlift-impact-"),
@@ -289,13 +302,23 @@ export async function runImpact(configFile: string): Promise<ImpactReport> {
     await extension.install(workspaceRoot);
     extensionInstalled = true;
 
+    // Freeze each fixture once. Both conditions always copy the same snapshot.
+    const snapshots = path.join(workspaceRoot, "snapshots");
+    await mkdir(snapshots);
+    for (const testCase of suite.cases) {
+      const snapshot = path.join(snapshots, testCase.id);
+      await cp(testCase.fixture.path, snapshot, { recursive: true });
+      if (await fixtureDigest(snapshot) !== environment.fixtures[testCase.id]) {
+        throw new Error("Fixture changed during snapshot creation");
+      }
+    }
     for (const testCase of suite.cases) {
       for (let repeat = 1; repeat <= config.execution.repeats; repeat += 1) {
         for (const condition of conditionOrderForRepeat(repeat)) {
           runs.push(
             await executeRun(
               config,
-              testCase,
+              { ...testCase, fixture: { path: path.join(snapshots, testCase.id) } },
               condition,
               repeat,
               experimentId,
@@ -318,6 +341,16 @@ export async function runImpact(configFile: string): Promise<ImpactReport> {
     }
   }
 
+  for (const testCase of suite.cases) {
+    if (await fixtureDigest(testCase.fixture.path) !== environment.fixtures[testCase.id]) {
+      throw new Error("Original fixture changed during experiment; results are invalid");
+    }
+  }
+  environment.model.resolvedVersions = [...new Set(runs.flatMap(run =>
+    run.events.filter(event => event.type === "model.usage" && typeof event.model === "string")
+      .map(event => event.model as string)))].sort();
+  environment.observations.modelDrift = environment.model.resolvedVersions.length > 1
+    ? "detected" : "not-observed";
   const report: ImpactReport = {
     schemaVersion: 1,
     experimentId,
@@ -325,12 +358,29 @@ export async function runImpact(configFile: string): Promise<ImpactReport> {
     configPath: config.configPath,
     runs,
     summary: summarizeImpact(runs),
+    environment,
+    policy: config.decision,
   };
-
-  await mkdir(config.outputDir, { recursive: true });
-  await writeFile(
-    path.join(config.outputDir, "results.json"),
-    `${JSON.stringify(report, null, 2)}\n`,
+  // Metadata capture retains comparison metrics, but strips prompts, arguments and logs.
+  if (config.storage.capture === "metadata") {
+    for (const run of report.runs) {
+      run.runtime.stderr = "";
+      for (const validator of run.validators) {
+        validator.stdout = ""; validator.stderr = ""; validator.command = [];
+      }
+      run.events = run.events.map(event => Object.fromEntries(Object.entries(event).filter(
+        ([key]) => ["type", "name", "server", "status", "callId", "model", "turn",
+          "inputTokens", "outputTokens", "totalTokens", "costUSD"].includes(key),
+      )) as RunEvent);
+    }
+  }
+  Object.assign(report, redactSecrets(report, secretValues));
+  await saveBundle(
+    report, config.outputDir,
+    redactSecrets(config, secretValues),
+    config.storage.capture === "metadata"
+      ? { cases: suite.cases.map(c => ({ id: c.id, tags: c.tags })) }
+      : redactSecrets(suite, secretValues),
   );
 
   return report;

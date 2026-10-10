@@ -1,4 +1,5 @@
 import type { ModelConfig } from "./models/config.js";
+import type { EnvironmentLock } from "./evidence/environment.js";
 
 export type Condition = "baseline" | "candidate";
 export type RunOutcome =
@@ -65,6 +66,7 @@ export interface RunResult {
   condition: Condition;
   outcome: RunOutcome;
   success: boolean;
+  tags?: string[];
   durationMs: number;
   events: RunEvent[];
   validators: ValidatorResult[];
@@ -109,4 +111,10 @@ export interface ImpactReport {
   configPath: string;
   runs: RunResult[];
   summary: ImpactSummary;
+  environment?: EnvironmentLock;
+  policy?: {
+    minimumQualityLiftPp: number;
+    maximumCostIncreasePct: number;
+  };
+  evidenceDir?: string;
 }

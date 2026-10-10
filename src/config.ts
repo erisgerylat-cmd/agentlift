@@ -5,8 +5,11 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
 import { modelConfigSchema } from "./models/config.js";
+import { RESERVED_ENV } from "./security.js";
 
 const commandSchema = z.array(z.string().min(1)).min(1);
+const envNameSchema = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/u)
+  .refine(name => !RESERVED_ENV.test(name), "Cannot override isolation environment");
 
 const impactConfigSchema = z
   .object({
@@ -31,7 +34,7 @@ const impactConfigSchema = z
         transport: z.literal("stdio"),
         command: commandSchema,
         cwd: z.string().optional(),
-        envAllowlist: z.array(z.string().min(1)).default([]),
+        envAllowlist: z.array(envNameSchema).default([]),
       })
       .strict(),
     suite: z
@@ -44,16 +47,24 @@ const impactConfigSchema = z
         repeats: z.number().int().min(1).max(100).default(1),
         order: z.literal("ab-ba-balanced").default("ab-ba-balanced"),
         timeoutMs: z.number().int().min(100).default(30_000),
+        maxRuns: z.number().int().min(2).max(10000).default(1000),
+        seed: z.number().int().min(0).max(4294967295).default(42),
       })
       .strict()
       .default({
         repeats: 1,
         order: "ab-ba-balanced",
         timeoutMs: 30_000,
+        maxRuns: 1000,
+        seed: 42,
       }),
+    decision: z.object({
+      minimumQualityLiftPp: z.number().min(0).max(100).default(0),
+      maximumCostIncreasePct: z.number().min(0).default(20),
+    }).strict().default({ minimumQualityLiftPp: 0, maximumCostIncreasePct: 20 }),
     security: z
       .object({
-        envAllowlist: z.array(z.string().min(1)).default([]),
+        envAllowlist: z.array(envNameSchema).default([]),
         maxOutputBytes: z
           .number()
           .int()
@@ -95,6 +106,7 @@ const taskSuiteSchema = z
                 "Case id may contain only letters, numbers, dots, underscores, and hyphens",
               ),
             task: z.string().min(1),
+            tags: z.array(z.string().min(1)).default([]),
             fixture: z
               .object({
                 path: z.string().min(1),
@@ -151,6 +163,8 @@ export async function loadImpactConfig(
   const parsed = impactConfigSchema.parse(
     parseYaml(await readFile(configPath, "utf8")),
   );
+  envNameSchema.parse(parsed.subject.model.baseUrlEnv);
+  envNameSchema.parse(parsed.subject.model.apiKeyEnv);
 
   return {
     ...parsed,
@@ -177,9 +191,17 @@ export async function loadTaskSuite(
 ): Promise<LoadedTaskSuite> {
   const suitePath = path.resolve(suiteFile);
   const suiteDir = path.dirname(suitePath);
-  const parsed = taskSuiteSchema.parse(
-    parseYaml(await readFile(suitePath, "utf8")),
-  );
+  const source = await readFile(suitePath, "utf8");
+  const data = suitePath.endsWith(".jsonl")
+    ? {
+        version: 1,
+        cases: source.split(/\r?\n/u).filter(line => line.trim()).map((line, index) => {
+          try { return JSON.parse(line); }
+          catch { throw new Error(`Invalid task JSONL at line ${index + 1}`); }
+        }),
+      }
+    : parseYaml(source);
+  const parsed = taskSuiteSchema.parse(data);
   const caseIds = new Set<string>();
   for (const testCase of parsed.cases) {
     if (caseIds.has(testCase.id)) {

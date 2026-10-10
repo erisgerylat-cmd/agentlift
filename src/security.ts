@@ -1,12 +1,15 @@
 import { lstat, mkdir, readdir } from "node:fs/promises";
 import path from "node:path";
 
+export const RESERVED_ENV = /^(HOME|USERPROFILE|PATH|SHELL|TMP|TEMP|TMPDIR|XDG_.*|NODE_OPTIONS|NODE_PATH|LD_.*|DYLD_.*|GIT_.*)$/iu;
+
 async function assertNoSymlinks(currentPath: string): Promise<void> {
   const entry = await lstat(currentPath);
   if (entry.isSymbolicLink()) {
     throw new Error(`Fixture contains a symbolic link: ${currentPath}`);
   }
   if (!entry.isDirectory()) {
+    if (!entry.isFile()) throw new Error(`Unsupported fixture entry: ${currentPath}`);
     return;
   }
 
@@ -71,6 +74,9 @@ export async function createIsolatedEnvironment(
   }
 
   for (const name of new Set(allowlist)) {
+    if (RESERVED_ENV.test(name)) {
+      throw new Error(`Environment variable cannot override isolation: ${name}`);
+    }
     if (process.env[name] !== undefined) {
       env[name] = process.env[name];
     }
@@ -92,13 +98,15 @@ export function environmentValues(names: string[]): string[] {
 
 function redactText(text: string, secretValues: string[]): string {
   let redacted = text;
-  for (const secret of secretValues) {
+  for (const secret of secretValues.filter(Boolean).sort((a, b) => b.length - a.length)) {
     if (redacted === secret) {
       return "[REDACTED]";
     }
     redacted = redacted.split(secret).join("[REDACTED]");
   }
-  return redacted;
+  return redacted
+    .replace(/\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,})\b/gu, "[REDACTED]")
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/giu, "Bearer [REDACTED]");
 }
 
 export function redactSecrets<T>(value: T, secretValues: string[]): T {
