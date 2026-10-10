@@ -101,7 +101,7 @@ export interface ImpactSummary {
   candidateSuccesses: number;
   infrastructureFailures: number;
   successRateDeltaPp: number | null;
-  decision: "INCONCLUSIVE";
+  decision: "ENABLE" | "DO_NOT_ENABLE" | "INCONCLUSIVE";
 }
 
 export interface ImpactReport {

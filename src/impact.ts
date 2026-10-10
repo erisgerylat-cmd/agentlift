@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { summarizeImpact } from "./analysis/summary.js";
+import { renderReport } from "./analysis/report.js";
 import { fixtureDigest, lockEnvironment } from "./evidence/environment.js";
 import { saveBundle } from "./evidence/bundle.js";
 import {
@@ -387,21 +388,5 @@ export async function runImpact(configFile: string): Promise<ImpactReport> {
 }
 
 export function formatImpactReport(report: ImpactReport): string {
-  const { summary } = report;
-  const delta = summary.successRateDeltaPp === null
-    ? "unavailable (no valid pairs)"
-    : `${summary.successRateDeltaPp}pp`;
-
-  return [
-    "AgentLift impact smoke report",
-    "",
-    `Experiment: ${report.experimentId}`,
-    `Pairs: ${summary.totalPairs}`,
-    `Valid pairs: ${summary.validPairs}; excluded pairs: ${summary.excludedPairs.length}`,
-    `Baseline: ${summary.baselineSuccesses}/${summary.validPairs} successful`,
-    `Candidate: ${summary.candidateSuccesses}/${summary.validPairs} successful`,
-    `Infrastructure failures: ${summary.infrastructureFailures}`,
-    `Observed delta: ${delta}`,
-    `Decision: ${summary.decision} (smoke run; no confidence interval yet)`,
-  ].join("\n");
+  return renderReport(report);
 }

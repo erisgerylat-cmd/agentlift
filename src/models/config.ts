@@ -9,6 +9,8 @@ export const modelConfigSchema = z.object({
   maxTokens: z.number().int().min(1).max(128_000).optional(),
   maxTurns: z.number().int().min(1).max(32).optional(),
   requestTimeoutMs: z.number().int().min(100).max(300_000).optional(),
+  inputPricePerMillion: z.number().nonnegative().optional(),
+  outputPricePerMillion: z.number().nonnegative().optional(),
 }).strict();
 
 export type ModelConfig = z.infer<typeof modelConfigSchema>;

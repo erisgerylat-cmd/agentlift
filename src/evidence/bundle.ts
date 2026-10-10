@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { digest } from "./environment.js";
 import { summarizeImpact } from "../analysis/summary.js";
+import { analyzeReport, renderReport } from "../analysis/report.js";
 import type { ImpactReport } from "../types.js";
 import { assertSafeFixture } from "../security.js";
 
@@ -39,11 +40,14 @@ export async function saveBundle(
   await assertSafeFixture(output);
   await mkdir(directory); // Never overwrite a previous experiment.
   report.evidenceDir = directory;
+  report.summary.decision = analyzeReport(report).decision;
   const files: Record<string, string> = {
     "experiment.json": JSON.stringify(spec, null, 2),
     "tasks.json": JSON.stringify(suite, null, 2),
     "environment.lock": JSON.stringify(report.environment, null, 2),
     "results.json": JSON.stringify(report, null, 2),
+    "analysis.json": JSON.stringify(analyzeReport(report), null, 2),
+    "report.md": renderReport(report, true).trimEnd(),
     "traces.jsonl": report.runs.flatMap(run =>
       run.events.map(event => JSON.stringify({ runId: run.runId, event }))).join("\n"),
   };
@@ -85,5 +89,6 @@ export async function loadReport(input: string): Promise<ImpactReport> {
   }
   // Recompute instead of trusting stale or edited summary fields.
   report.summary = summarizeImpact(report.runs);
+  report.summary.decision = analyzeReport(report).decision;
   return report;
 }
