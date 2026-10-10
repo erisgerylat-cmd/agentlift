@@ -1,0 +1,40 @@
+version: 1
+kind: extension-impact
+
+subject:
+  runner:
+    protocol: jsonl
+    command:
+      - node
+      - ./fake-agent.mjs
+  model:
+    provider: openai-compatible
+    baseUrlEnv: FAKE_MODEL_BASE_URL
+    apiKeyEnv: FAKE_MODEL_API_KEY
+    name: deterministic-fake-model
+
+candidate:
+  type: mcp
+  name: fake-review
+  transport: stdio
+  command:
+    - node
+    - ./fake-mcp.mjs
+  envAllowlist: []
+
+suite:
+  file: ./tasks.yaml
+
+execution:
+  repeats: 2
+  order: ab-ba-balanced
+  timeoutMs: 5000
+
+security:
+  envAllowlist: []
+  maxOutputBytes: 1048576
+  network: inherit
+
+storage:
+  capture: redacted
+  output: ../.agentlift

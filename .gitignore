@@ -1,0 +1,5 @@
+node_modules/
+dist/
+.agentlift/
+*.log
+.DS_Store

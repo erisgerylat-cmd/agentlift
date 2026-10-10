@@ -1,0 +1,24 @@
+version: 1
+
+cases:
+  - id: review-race-condition
+    task: Review the repository and report the race condition.
+    fixture:
+      path: ./fixture
+    validators:
+      - type: command
+        command:
+          - node
+          - check-result.mjs
+          - RACE_FOUND
+
+  - id: formatting-control
+    task: Perform a formatting-only check without using review tools.
+    fixture:
+      path: ./fixture
+    validators:
+      - type: command
+        command:
+          - node
+          - check-result.mjs
+          - FORMAT_OK
