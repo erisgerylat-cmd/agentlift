@@ -1,9 +1,11 @@
 # AgentLift Product Requirements Document
 
+[English](./PRD.md) | [简体中文](./PRD.zh-CN.md)
+
 > Status: Draft for review
-> Version: 0.2
+> Version: 0.3
 > Updated: 2026-10-10
-> Product name: AgentLift (working name; repository and package availability not verified)
+> Product name: AgentLift (repository created; package availability not verified)
 
 ## 1. Executive Summary
 
@@ -302,7 +304,7 @@ suite:
 
 execution:
   repeats: 10
-  order: randomized-block
+  order: ab-ba-balanced
   timeout: 15m
   maxRuns: 240
   maxCostUSD: 20
@@ -312,6 +314,11 @@ decision:
   minimumQualityLiftPp: 5
   maximumTokenOverheadPct: 20
   maximumLatencyOverheadPct: 25
+
+security:
+  envAllowlist: []
+  maxOutputBytes: 1048576
+  network: inherit
 
 storage:
   capture: redacted
@@ -511,7 +518,18 @@ Baseline and candidate runs are paired by:
 - Agent and model configuration;
 - validator version.
 
-Execution order is randomized within blocks.
+Execution order is balanced within paired blocks.
+
+The implementation uses balanced AB/BA blocks:
+
+```text
+odd repeat:  baseline -> candidate
+even repeat: candidate -> baseline
+```
+
+The experiment records cache state, provider rate-limit signals, resolved model
+identity, and any detectable model-version drift. Randomization may be added
+inside balanced blocks later, but must not destroy order balance.
 
 ### 13.2 Reported Statistics
 
@@ -519,7 +537,7 @@ Every primary comparison displays:
 
 - valid sample count;
 - baseline and candidate event counts;
-- paired effect size;
+- absolute and relative paired effect sizes;
 - 95% confidence interval;
 - excluded runs and reasons;
 - per-case outcomes;
@@ -535,6 +553,10 @@ Every primary comparison displays:
 | subgroup result | same method with explicit reduced sample count |
 | multiple subgroup checks | Holm correction where formal claims are made |
 
+Bootstrap intervals from small samples are descriptive, not proof of a stable
+effect. Deterministic pass rates and LLM-judge scores remain separate measures
+and are never collapsed into one total score.
+
 ### 13.4 No Opaque Confidence Grade
 
 The MVP does not display `HIGH`, `MEDIUM`, or `LOW`.
@@ -548,7 +570,21 @@ effect = +14.2pp
 excluded = 3 infrastructure failures
 ```
 
-### 13.5 Run Modes
+### 13.5 Conservative Decision Rules
+
+The first decision rules are intentionally narrow:
+
+- `ENABLE`: the success-rate interval lower bound is above zero and measured
+  overhead remains within the user's declared budget;
+- `DO_NOT_ENABLE`: success decreases materially, or a security or permission
+  hard gate fails;
+- `INCONCLUSIVE`: the sample is insufficient, the interval crosses zero, or
+  the paired evidence is materially incomparable.
+
+`ENABLE_CONDITIONALLY` requires enough evidence for an explicitly named task
+subgroup. A smoke run always remains `INCONCLUSIVE`.
+
+### 13.6 Run Modes
 
 | Mode | Default use |
 |---|---|
@@ -562,27 +598,26 @@ The report labels non-decision-grade runs clearly.
 
 ### 14.1 Trace Diff
 
-AgentLift normalizes baseline and candidate events into:
+The vertical slice starts with only five normalized events:
 
-- model request;
-- model response metadata;
-- tool discovery;
+- `run.start`;
 - tool call;
 - tool result;
-- file operation;
-- validation event;
-- error;
-- terminal outcome.
+- `validation`;
+- `run.end`.
 
-The diff identifies:
+Later collection may add `model.usage`, `tool.discovery`, and `file.change`.
+Trace analysis initially supports:
 
-- the first meaningful divergence;
-- added, removed, or reordered tool calls;
+- event-type counts;
+- tool-call sequence diff;
 - changed tool arguments;
 - changed tool results;
-- repeated or unnecessary calls;
-- new errors or retries;
-- downstream outcome changes.
+- the first observable divergence;
+- longest common subsequence or simple stage alignment.
+
+General semantic Trace alignment is explicitly deferred. Agent trajectories can
+be valid while structurally different, so it is not on the Alpha critical path.
 
 ### 14.2 MCP-specific Explanation
 
@@ -646,14 +681,17 @@ agentlift-evidence-<experiment-id>/
 Records:
 
 - OS and architecture;
-- Agent command and version;
-- resolved model ID;
-- extension content hash;
+- Node version;
+- Agent and MCP commands and versions;
+- Git commit and working-tree status;
+- resolved model ID and any available version metadata;
+- ExperimentSpec hash;
 - task suite hash;
+- Adapter versions;
 - validator versions;
-- relevant runtime versions;
-- isolation mode;
-- redacted environment-variable names;
+- repeat count and random seed;
+- isolation mode and network policy;
+- environment-variable names, never values;
 - AgentLift version.
 
 ### 15.3 Portability
@@ -679,7 +717,7 @@ agentlift impact <extension> --suite <suite>
 ```bash
 agentlift compare <experiment-a> <experiment-b>
 agentlift doctor
-agentlift ci --policy <expression>
+agentlift ci
 ```
 
 ### 16.3 Examples
@@ -691,8 +729,14 @@ agentlift compare ./results/v1 ./results/v2
 
 agentlift doctor
 
-agentlift ci --fail-on "task_success_delta_pp < -5"
+agentlift ci \
+  --min-success-delta-pp=-5 \
+  --max-cost-increase-pct=20 \
+  --max-tool-error-rate=0.05
 ```
+
+The first CI interface uses explicit typed flags. An expression DSL is deferred
+until repeated user demand justifies its parser and error-handling surface.
 
 ### 16.4 Deferred Commands
 
@@ -714,13 +758,20 @@ CLI
 ├── Manifest loader
 ├── Experiment planner
 ├── Workspace manager
-├── Generic command runner
-├── MCP lifecycle manager
+├── RuntimeAdapter
+│   └── GenericCommandRuntime
+├── ExtensionAdapter
+│   └── StdioMcpExtension
 ├── Trace normalizer
 ├── Validator engine
 ├── Statistics and decision engine
 └── Evidence bundle renderer
 ```
+
+`RuntimeAdapter` launches the Agent, sends the task, and collects normalized
+output. `ExtensionAdapter` validates, installs, enables, disables, and removes
+the tested extension. The two responsibilities must not be combined in a
+single generic runner.
 
 ### 17.2 Generic Command Runner Protocol
 
@@ -741,13 +792,33 @@ Candidate mode includes a temporary MCP configuration:
 The runner emits normalized or mappable JSONL events:
 
 ```json
-{"type":"model.usage","inputTokens":12000,"outputTokens":1800}
+{"type":"run.start","runId":"run_124","condition":"candidate"}
 {"type":"tool.call","name":"candidate.search","arguments":{"query":"..."}}
 {"type":"tool.result","name":"candidate.search","status":"ok"}
+{"type":"validation","validator":"command","success":true}
 {"type":"run.end","status":"completed"}
 ```
 
-### 17.3 OpenAI-compatible Model Interface
+### 17.3 Source Layout
+
+The first implementation remains one TypeScript package with internal modules:
+
+```text
+src/
+├── cli/
+├── experiment/
+├── runtimes/
+├── extensions/
+├── validators/
+├── events/
+├── analysis/
+└── report/
+```
+
+Runtime Adapters or evaluators become separate workspace packages only when
+they require independent release and versioning.
+
+### 17.4 OpenAI-compatible Model Interface
 
 MVP supports one model-provider contract:
 
@@ -763,16 +834,15 @@ AgentLift does not proxy or store the API key.
 
 For every candidate run:
 
-1. Validate the command and allowed environment.
-2. Start the stdio MCP process.
-3. Capture startup time and stderr separately.
-4. Perform initialization and capability discovery.
-5. Generate the temporary subject configuration.
-6. Run the subject Agent.
-7. Collect tool traces and transport errors.
-8. Request graceful shutdown.
-9. Terminate remaining process descendants after timeout.
-10. Remove temporary configuration and workspace.
+1. `StdioMcpExtension` validates the command and allowed environment.
+2. The Extension Adapter installs an experiment-local configuration.
+3. Baseline calls `disable`; Candidate calls `enable`.
+4. `GenericCommandRuntime` runs the Agent with that temporary configuration.
+5. AgentLift captures MCP tool events and transport failures.
+6. The Runtime Adapter terminates the entire process group on completion or
+   timeout.
+7. The Extension Adapter removes temporary configuration.
+8. AgentLift removes the temporary workspace.
 
 Baseline runs must not expose the candidate MCP server.
 
@@ -786,6 +856,10 @@ Baseline runs must not expose the candidate MCP server.
 - Exclude ignored files and secrets by default.
 - Exclude uncommitted changes unless explicitly included.
 - Use a temporary HOME and Agent configuration root.
+- Reject fixture and workspace symbolic links.
+- Restrict inherited environment variables to an explicit allowlist.
+- Cap captured stdout and stderr and mark overflow as infrastructure failure.
+- Apply timeouts to every external command and terminate its process tree.
 - Do not modify global Git or Agent configuration.
 - Never auto-apply candidate changes.
 
@@ -811,6 +885,11 @@ MVP guidance requires:
 - explicit environment allowlists;
 - no production tokens;
 - extension-specific side-effect documentation.
+
+Optional network disable is exposed only when the selected isolation backend
+can enforce it. AgentLift must not claim network isolation when running in the
+default process-only mode. Untrusted projects require an explicit warning
+before command execution.
 
 ## 20. Privacy and Redaction
 
@@ -843,43 +922,48 @@ CI turns AgentLift from a one-off test into a release regression gate.
 ```bash
 agentlift ci \
   --evidence ./agentlift-results/latest \
-  --fail-on "task_success_delta_pp < -5" \
-  --fail-on "critical_regressions > 0" \
-  --fail-on "transport_error_rate > 0.02"
+  --min-success-delta-pp=-5 \
+  --max-cost-increase-pct=20 \
+  --max-tool-error-rate=0.02
 ```
 
 ### 21.3 Policy Rules
 
-- Policies operate on normalized result fields.
+- Typed thresholds operate on normalized result fields.
 - Unknown or missing values do not silently become zero.
 - Infrastructure-invalid runs can fail or skip according to explicit policy.
 - The CI output includes the exact failed evidence.
 
 ## 22. MVP Scope
 
-### 22.1 Included
+### 22.1 W3 Alpha
 
 - local CLI;
 - `agentlift impact`;
-- `agentlift compare`;
-- `agentlift doctor`;
-- `agentlift ci`;
 - Generic Command Agent protocol;
 - one OpenAI-compatible model interface;
 - stdio MCP candidate;
-- YAML and JSONL task suites;
-- command, file, diff, JSON Schema, and trace validators;
-- optional secondary LLM judge interface;
-- paired randomized-block execution;
+- YAML task suites;
+- deterministic command validators;
+- paired AB/BA-balanced execution;
 - repeated runs;
-- direct sample counts, effects, and intervals;
-- baseline/candidate Trace Diff;
-- MCP lifecycle and overhead metrics;
+- minimal normalized Trace;
 - temporary repository and configuration isolation;
-- JSON, Markdown, and terminal reports;
+- JSON and terminal reports.
+
+### 22.2 Beta Target
+
+- `agentlift compare`, `agentlift doctor`, and typed-flag `agentlift ci`;
+- JSONL task suites;
+- file, diff, JSON Schema, and trace validators;
+- optional secondary LLM judge interface;
+- direct sample counts, absolute and relative effects, and intervals;
+- simple tool sequence/argument/result diff and first observable divergence;
+- MCP lifecycle and overhead metrics;
+- Markdown report;
 - portable evidence bundle.
 
-### 22.2 Excluded
+### 22.3 Excluded
 
 - Skill evaluation;
 - multiple native Agent adapters;
@@ -899,53 +983,31 @@ agentlift ci \
 
 ## 23. Roadmap
 
-### Milestone 0: Validation Spikes
+| Time | Goal | Acceptance gate |
+|---|---|---|
+| W1 | Technical Spike | Fake Agent and Fake MCP complete one isolated A/B run |
+| W2-W3 | Minimal vertical slice | `agentlift impact` produces Terminal and JSON results |
+| W3 | Alpha release | At least two external users complete one run |
+| W4-W5 | Trustworthy experiment | Repeats, AB/BA balance, effects, and intervals |
+| W5-W6 | Failure explanation | Tool-sequence diff and first observable divergence |
+| W7 | Evidence bundle | Report rebuilds offline and contains no secrets |
+| W8 | CI and hardening | Linux/macOS pass process and workspace safety tests |
+| W9-W10 | Beta and ecosystem proof | Two real MCP cases and a five-minute Quick Start |
 
-- Prove a Generic Command baseline/candidate run.
-- Prove temporary stdio MCP injection.
-- Prove original-workspace immutability.
-- Prove paired metrics from repeated runs.
-- Interview at least ten MCP authors or power users.
-- Obtain at least two MCP projects willing to test pre-release.
+The W1 Spike must answer five questions before framework work continues:
 
-### Milestone 1: Trustworthy Vertical Slice
+1. Can AgentLift inject a temporary stdio MCP?
+2. Can it run the same task without and with that MCP?
+3. Can it restore an identical initial workspace?
+4. Can it terminate the entire MCP process tree?
+5. Can it produce a structured task result?
 
-- One Agent runner.
-- One OpenAI-compatible model.
-- One stdio MCP.
-- One YAML suite.
-- Deterministic task outcome.
-- Terminal and JSON result.
+Failure to close this loop by the end of W1 triggers a product-assumption
+review, not more framework construction. If external evidence arrives early,
+Beta may ship in W8; elapsed roadmap time is not a reason to add scope.
 
-### Milestone 2: Explanation
-
-- Normalized Trace.
-- First-divergence detection.
-- Tool-call and argument diff.
-- MCP overhead metrics.
-- Regression case bundle.
-- Markdown report.
-
-### Milestone 3: Reuse
-
-- Evidence bundle validation.
-- Historical comparison.
-- CI policy engine.
-- Release workflow example.
-
-### Milestone 4: Skill Evaluation
-
-- temporary Skill injection;
-- activation and false-activation metrics;
-- instruction-context overhead;
-- cross-version Skill impact.
-
-### Milestone 5: Ecosystem Expansion
-
-- selected native Agent adapters;
-- selected open-source evaluation integrations;
-- multi-model sensitivity experiments;
-- multi-Agent research only after real demand is demonstrated.
+Skill evaluation, native Agent adapters, and broad ecosystem integrations begin
+only after real MCP usage validates demand.
 
 ## 24. Success Metrics
 
@@ -953,6 +1015,7 @@ agentlift ci \
 
 - Median time to first valid smoke report: <=10 minutes.
 - At least 80% of users who pass `doctor` complete the example experiment.
+- At least two external users complete the W3 Alpha without maintainer edits.
 
 ### 24.2 Trust
 
@@ -963,6 +1026,12 @@ agentlift ci \
 
 ### 24.3 Product Value
 
+- Users can complete their first own-suite experiment within 15 minutes.
+- Users have task suites they expect to reuse.
+- Reports change at least some enable/disable decisions.
+- Interviews identify whether success, cost, compatibility, or explanation is
+  the dominant need.
+- Users explicitly indicate whether they would add the experiment to CI.
 - Percentage of experiments resulting in a bounded enable/disable decision.
 - Percentage of users who rerun after an MCP version change.
 - Number of MCP projects using AgentLift in CI.
@@ -992,20 +1061,17 @@ agentlift ci \
 
 ## 26. Open Decisions
 
-1. Final product, CLI, package, and repository name.
-2. TypeScript versus another implementation language.
-3. Minimum runtime version.
-4. License.
-5. Reference Generic Command runner implementation.
-6. Exact OpenAI-compatible API subset.
-7. Default repeat counts for standard and release modes.
-8. Default practical quality and overhead thresholds.
-9. Bootstrap implementation and random seed recording.
-10. Canonical normalized Trace schema.
-11. Evidence bundle archive format.
-12. Default local retention period.
-13. Whether the reference LLM judge ships in MVP or only the interface ships.
-14. Minimum MCP protocol versions.
+1. License.
+2. Published npm package name.
+3. Exact OpenAI-compatible API subset.
+4. Default repeat counts for standard and release modes.
+5. Default practical quality and overhead thresholds.
+6. Bootstrap implementation and random seed recording.
+7. Canonical expanded Trace schema after the five-event minimum.
+8. Evidence bundle archive format.
+9. Default local retention period.
+10. Whether the reference LLM judge ships in MVP or only the interface ships.
+11. Minimum MCP protocol versions.
 
 ## 27. MVP Acceptance Criteria
 
@@ -1017,7 +1083,7 @@ The MVP is ready for public beta only when:
 4. The candidate MCP is absent from baseline configuration.
 5. The candidate MCP starts and stops without leaked child processes.
 6. Agent, model, MCP, task, and validator versions are locked.
-7. Run ordering is randomized and recorded.
+7. Run ordering is AB/BA-balanced and recorded.
 8. Repeated paired outcomes produce sample counts, effects, and intervals.
 9. Deterministic hard-gate failures cannot be overridden by the LLM judge.
 10. Reports include improved, regressed, and invalid cases.
@@ -1028,6 +1094,11 @@ The MVP is ready for public beta only when:
 15. Missing metrics are shown as unavailable, never zero.
 16. No secret value appears in the evidence bundle.
 17. Insufficient evidence produces `INCONCLUSIVE`.
+18. Environment inheritance is allowlisted and uses temporary HOME/XDG roots.
+19. Fixture symlinks and path escapes are rejected.
+20. stdout/stderr overflow is bounded and reported as infrastructure failure.
+21. Optional network isolation is labeled unavailable unless actively enforced.
+22. Untrusted-project execution requires an explicit warning.
 
 ## 28. Future Skill Evaluation
 
