@@ -18,7 +18,8 @@
     "impact:openai": "npm run build && node dist/cli.js impact --config examples/openai-agentlift.yaml",
     "demo:claude": "npm run build && node dist/cli.js impact --config examples/claude/offline-skill.yaml && node dist/cli.js impact --config examples/claude/offline-mcp.yaml",
     "impact:claude:skill": "npm run build && node dist/cli.js impact --config examples/claude/skill.yaml",
-    "impact:claude:mcp": "npm run build && node dist/cli.js impact --config examples/claude/mcp.yaml"
+    "impact:claude:mcp": "npm run build && node dist/cli.js impact --config examples/claude/mcp.yaml",
+    "prototype:claude": "npm run build && node dist/claude-demo.js"
   },
   "engines": {
     "node": ">=22"

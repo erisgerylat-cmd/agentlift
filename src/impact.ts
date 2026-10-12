@@ -260,6 +260,7 @@ async function executeRun(
     outcome,
     success,
     tags: testCase.tags,
+    ...(testCase.extensionExpected === undefined ? {} : { extensionExpected: testCase.extensionExpected }),
     durationMs:
       runtimeResult.durationMs +
       validators.reduce((total, validator) => total + validator.durationMs, 0),
@@ -304,6 +305,8 @@ export async function runImpact(
     timeoutMs: config.execution.timeoutMs,
     maxOutputBytes: config.security.maxOutputBytes,
     allowedTools: config.subject.runner.allowedTools,
+    tools: config.subject.runner.tools,
+    resultMode: config.subject.runner.resultMode,
   });
   const extension = config.candidate.type === "skill"
     ? new ClaudeSkillExtension(config.candidate)
@@ -405,7 +408,8 @@ export async function runImpact(
       }
       run.events = run.events.map(event => Object.fromEntries(Object.entries(event).filter(
         ([key]) => ["type", "name", "server", "status", "callId", "model", "turn",
-          "inputTokens", "outputTokens", "totalTokens", "costUSD"].includes(key),
+          "inputTokens", "outputTokens", "totalTokens", "costUSD", "path", "beforeHash",
+          "afterHash", "bytes", "count"].includes(key),
       )) as RunEvent);
     }
   }

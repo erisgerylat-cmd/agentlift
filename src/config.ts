@@ -23,6 +23,9 @@ const impactConfigSchema = z
             command: commandSchema,
             cwd: z.string().optional(),
             allowedTools: z.array(z.string().min(1)).optional(),
+            tools: z.array(z.enum(["Read", "Glob", "Grep", "Skill", "Edit", "Write", "Bash"])).min(1).optional(),
+            resultMode: z.enum(["text", "workspace"]).default("text"),
+            authentication: z.enum(["environment", "none"]).default("environment"),
           })
           .strict(),
         model: modelConfigSchema,
@@ -116,6 +119,7 @@ const taskSuiteSchema = z
               ),
             task: z.string().min(1),
             tags: z.array(z.string().min(1)).default([]),
+            extensionExpected: z.boolean().optional(),
             fixture: z
               .object({
                 path: z.string().min(1),
@@ -183,6 +187,10 @@ export async function loadImpactConfig(
   }
   if (!claude && parsed.subject.runner.allowedTools !== undefined) {
     throw new Error("allowedTools is only supported by the Claude Code runner");
+  }
+  if (!claude && (parsed.subject.runner.tools !== undefined || parsed.subject.runner.resultMode !== "text" ||
+      parsed.subject.runner.authentication !== "environment")) {
+    throw new Error("tools, resultMode and authentication overrides require Claude Code");
   }
 
   return {

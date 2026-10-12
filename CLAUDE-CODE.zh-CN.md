@@ -2,6 +2,49 @@
 
 [English](./CLAUDE-CODE.md)
 
+## 完整基础闭环
+
+```bash
+npm run prototype:claude
+```
+
+此命令离线执行 Skill/MCP 正常与退化四组实验，覆盖
+`doctor → impact → 校验并重建 report → compare → ci`，正常组 PASS，
+退化组 FAIL，历史 Candidate 成功率下降 50pp。证据入口为
+`.agentlift/claude-workflow/ACCEPTANCE.json`。不调用真实模型。
+
+真实运行可直接使用一个命令：
+
+```bash
+node dist/cli.js workflow --config examples/claude/skill.yaml \
+  --min-success-delta-pp=0 --min-activation-rate=1 --max-false-activation-rate=0
+node dist/cli.js workflow --config examples/claude/mcp.yaml \
+  --before .agentlift/claude-skill --min-success-delta-pp=0
+```
+
+`workflow` 预检失败退出 2，不开始实验；验证完成后保留独立证据和 `workflow.json`，
+CI PASS/FAIL/数据不可用分别退出 0/1/2。`--before` 可选，比较历史实验。
+任务的 `extensionExpected: true/false` 分别标注预期调用与控制任务，未标注时触发率为
+unavailable。指标只使用有效配对中的观察调用，不能当作指令遵从证明。
+
+## 代码修改任务
+
+在 Claude 配置的 `subject.runner` 中增加：
+
+```yaml
+resultMode: workspace
+tools: [Read, Glob, Grep, Skill, Edit, Write, Bash]
+allowedTools: [Read, Glob, Grep, Skill, Edit, Write, "Bash(node --test *)"]
+```
+
+指定 `suite.file: ./code-tasks.yaml` 可试用代码修复示例，验证器运行
+`node --test sum.test.mjs`。正式任务应换为自己的 Fixture 和项目测试。
+`tools` 限定可用工具，`allowedTools` 控制免交互授权，其余调用由 `dontAsk` 拒绝；
+没有自动跳过权限。工作区模式不生成或覆盖 result.txt，用文件修改完成任务。
+`artifacts.json` 保存最终回答与添加/修改/删除文件的哈希清单，并纳入校验清单；
+不打包修改文件全文。`.claude`、`.git`、node_modules 不计入文件变更指标。
+验证器与 Agent 均在每次运行的临时 Fixture 副本中运行，结束后清理。
+
 在同一 Claude Code、模型、任务集上分别运行“无扩展 vs Skill”和“无扩展 vs stdio MCP”。
 每个 Case 重复两轮，使用 AB/BA 顺序，共八次 Claude Code 调用。两份配置使用相同任务，
 因此也可通过 `compare` 比较 Skill 和 MCP 的 Candidate 表现。
@@ -85,8 +128,8 @@ MCP 配置保留 `type: mcp` / `transport: stdio`，替换 `command`、`cwd` 和
 
 相对路径以 YAML 所在目录解析。替换 `suite.file`，为每个任务提供干净 Fixture 和确定性
 验证命令。Claude 最终回答保存为 `result.txt` 后执行验证器，已有 `result.txt` 不会被覆盖。
-当前 Runtime 面向读取、审查与文本结果，工具限定为 `Read,Glob,Grep,Skill` 加 Candidate
-MCP；不支持代码编辑任务。`allowedTools` 仅调整这些可用工具的免交互授权，不扩大工具集合。
+默认 Runtime 面向读取、审查与文本结果；工作区模式可显式启用编辑与 Bash 工具。
+`allowedTools` 仅调整可用工具的免交互授权，不扩大 `tools` 集合。
 
 Fixture 不得包含 `.claude`、`.mcp.json`、`.claude.json`、`CLAUDE.md`、`CLAUDE.local.md`
 或符号链接，以免污染对照。Skill 源与 Fixture 在实验后核对哈希；不修改全局配置。
@@ -97,7 +140,8 @@ Fixture 不得包含 `.claude`、`.mcp.json`、`.claude.json`、`CLAUDE.md`、`C
 
 当前已验证离线 CLI 契约和真实 stdio MCP 联调，未执行真实付费 Claude Code 模型调用。
 示例是合成任务，不能用于证明业务收益；小样本结论保持 `INCONCLUSIVE`。
-自动触发率、误触发率、Skill 冲突和上下文开销的专门统计留待后续。
+已支持标注任务的观察触发率与误触发率；Skill 冲突和上下文开销的专门统计留待后续。
+`authentication: none` 仅用于离线 CLI 替身，跳过凭证预检，不给真实 Claude 提供认证。
 
 遇到异常时提供 Claude 版本、使用的配置、退出码、脱敏后的报告与具体 Case。
 认证/API/进程/协议故障会排除整个配对；轮次耗尽或验证不通过记为任务失败。

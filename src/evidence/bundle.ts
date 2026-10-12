@@ -51,6 +51,13 @@ export async function saveBundle(
     "traces.jsonl": report.runs.flatMap(run =>
       run.events.map(event => JSON.stringify({ runId: run.runId, event }))).join("\n"),
   };
+  if (report.environment?.adapters.runtime === "claude-code@1") {
+    files["artifacts.json"] = JSON.stringify(report.runs.map(run => ({
+      runId: run.runId, caseId: run.caseId, condition: run.condition,
+      changes: run.events.filter(event => event.type === "file.change"),
+      answers: run.events.filter(event => event.type === "agent.result"),
+    })), null, 2);
+  }
   const hashes: Record<string, string> = {};
   for (const [name, content] of Object.entries(files)) {
     const bytes = `${content}\n`;

@@ -21,6 +21,11 @@ with `npm run demo:claude`, then use `npm run impact:claude:skill` or
 `npm run impact:claude:mcp` with your credentials. See the
 [Claude Code guide](./CLAUDE-CODE.md) for setup and validation scope.
 
+Run `npm run prototype:claude` to verify the complete Claude workflow, including
+regressed extensions and CI rejection. `agentlift workflow --config <file>`
+combines preflight, A/B execution, evidence validation, report, optional historical
+comparison and CI. Workspace mode supports code editing with deterministic tests.
+
 ## Quick Start
 
 Requirements:

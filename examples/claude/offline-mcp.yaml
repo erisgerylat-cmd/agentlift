@@ -4,6 +4,7 @@ subject:
   runner:
     protocol: claude-code
     command: ["node", "./fake-claude.mjs"]
+    authentication: none
   model:
     provider: claude-code
     name: offline-model

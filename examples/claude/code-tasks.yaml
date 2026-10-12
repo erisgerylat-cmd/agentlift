@@ -1,0 +1,11 @@
+version: 1
+cases:
+  - id: repair-sum
+    task: >-
+      Please repair sum.mjs so sum adds its two operands, using the race-review
+      skill or review_code MCP if available. Keep tests unchanged.
+    fixture:
+      path: ./code-fixture
+    validators:
+      - type: command
+        command: ["node", "--test", "sum.test.mjs"]

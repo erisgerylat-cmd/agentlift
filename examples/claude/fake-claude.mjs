@@ -1,6 +1,6 @@
 // Offline CLI contract fixture, not a Claude model or a measurement of its quality.
 import assert from "node:assert/strict";
-import { access, readFile, readdir } from "node:fs/promises";
+import { access, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -51,6 +51,11 @@ async function main() {
       result = value.content[0].text;
       response(result);
     } finally { await client.close(); }
+  }
+  if (input.includes("repair sum.mjs") && result === "RACE_FOUND") {
+    call("Edit", { file_path: "sum.mjs" });
+    await writeFile("sum.mjs", "export const sum = (a, b) => a + b;\n");
+    response("File updated");
   }
   emit({ type: "result", subtype: "success", is_error: false, result,
     usage: { input_tokens: 100, output_tokens: 5, cache_read_input_tokens: 10, cache_creation_input_tokens: 0 },

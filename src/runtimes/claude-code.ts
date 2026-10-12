@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { runCommand } from "../process.js";
 import { assertSafeFixture } from "../security.js";
+import { workspaceChanges, workspaceManifest } from "../evidence/workspace.js";
 import type { RunEvent } from "../types.js";
 import type { RuntimeAdapter, RuntimeExecution, RuntimeRunRequest } from "./runtime-adapter.js";
 
@@ -75,6 +76,10 @@ export function parseClaudeOutput(stdout: string, partial = false, events: RunEv
     }
   }
   if (!end) throw new Error("Claude Code did not emit a result");
+  events.push({ type: "agent.result", status: end.subtype, text: end.result ?? null });
+  if (Array.isArray(end.permission_denials) && end.permission_denials.length) {
+    events.push({ type: "permission.denied", count: end.permission_denials.length });
+  }
   if (end.subtype === "success" && !end.is_error && typeof end.result !== "string") {
     throw new Error("Claude Code success result requires text");
   }
@@ -90,6 +95,8 @@ export class ClaudeCodeRuntime implements RuntimeAdapter {
   constructor(private readonly options: {
     command: string[]; cwd: string; timeoutMs: number; maxOutputBytes: number;
     allowedTools?: string[];
+    tools?: string[];
+    resultMode?: "text" | "workspace";
   }) {}
 
   async run(request: RuntimeRunRequest): Promise<RuntimeExecution> {
@@ -100,6 +107,7 @@ export class ClaudeCodeRuntime implements RuntimeAdapter {
     const source = path.join(state, "mcp-source.json");
     const mcpFile = path.join(state, "mcp.json");
     const servers = message.mcpConfig?.servers ?? [];
+    const before = await workspaceManifest(message.workspace);
     await writeFile(source, JSON.stringify(servers), { mode: 0o600, flag: "wx" });
     const development = import.meta.url.endsWith(".ts");
     const launcher = fileURLToPath(new URL(`../runners/mcp-launch.${development ? "ts" : "js"}`, import.meta.url));
@@ -116,11 +124,13 @@ export class ClaudeCodeRuntime implements RuntimeAdapter {
       "--setting-sources", "", "--settings", '{"disableAllHooks":true,"disableBundledSkills":true}',
       "--strict-mcp-config", "--mcp-config", mcpFile, "--no-session-persistence",
       "--permission-mode", "dontAsk",
-      "--tools", "Read,Glob,Grep,Skill",
+      "--tools", (this.options.tools ?? ["Read", "Glob", "Grep", "Skill"]).join(","),
       "--allowedTools", [...(this.options.allowedTools ?? ["Read", "Glob", "Grep", "Skill"]),
         ...servers.map(server => `mcp__${server.name}__*`)].join(","),
       "--append-system-prompt",
-      "Return your final answer as plain text. AgentLift saves it as result.txt. Do not write result.txt yourself.",
+      this.options.resultMode === "workspace"
+        ? "Complete the task by editing files in this workspace. Return a short final explanation."
+        : "Return your final answer as plain text. AgentLift saves it as result.txt. Do not write result.txt yourself.",
     ];
     const result = await runCommand({
       command, cwd: message.workspace, env: { ...env, CLAUDE_CONFIG_DIR: configDir,
@@ -144,7 +154,7 @@ export class ClaudeCodeRuntime implements RuntimeAdapter {
           failure?.code === "process_exit" && result.exitCode !== null) {
         failure = null;
       }
-      if (!failure && agentStatus === "completed") {
+      if (!failure && agentStatus === "completed" && this.options.resultMode !== "workspace") {
         await assertSafeFixture(message.workspace);
         await writeFile(path.join(message.workspace, "result.txt"), parsed.end.result!.trimEnd() + "\n",
           { flag: "wx", mode: 0o600 });
@@ -152,6 +162,11 @@ export class ClaudeCodeRuntime implements RuntimeAdapter {
     } catch {
       failure ??= { code: "protocol_error",
         message: "Claude Code output, MCP connection or result artifact is invalid; check CLI compatibility and authentication" };
+    }
+    try {
+      events.push(...workspaceChanges(before, await workspaceManifest(message.workspace)));
+    } catch {
+      failure ??= { code: "protocol_error", message: "Claude workspace contains unsafe or unreadable artifacts" };
     }
     return { ...result, events, agentStatus, failure };
   }

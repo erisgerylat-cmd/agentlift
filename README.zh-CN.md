@@ -41,6 +41,10 @@ Claude Code 可分别运行“无扩展 vs Skill”和“无扩展 vs MCP”。�
 或 `npm run impact:claude:mcp`。详细步骤与验证边界见
 [Claude Code 测试指南](./CLAUDE-CODE.zh-CN.md)。
 
+执行 `npm run prototype:claude` 可验收包含扩展退化与 CI 拦截的完整闭环；
+`agentlift workflow --config <file>` 串联预检、A/B、证据校验、报告、
+可选历史比较与 CI。工作区模式支持编辑代码并用确定性测试验收。
+
 - Generic Command Agent；
 - OpenAI-compatible 文本任务参考 Runner（本地 HTTP/stdio 联调已通过）；
 - stdio MCP Extension；

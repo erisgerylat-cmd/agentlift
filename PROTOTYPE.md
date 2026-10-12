@@ -6,6 +6,9 @@
 Claude Code 基础 Skill/MCP 接入及离线演示已补齐，具体运行步骤见
 [Claude Code 测试指南](./CLAUDE-CODE.zh-CN.md)；真实模型调用由人工验收验证。
 
+`npm run prototype:claude` 可离线验收 Claude 完整基础闭环：正常/退化 Skill 与
+MCP、证据重建、历史比较和 CI。支持工作区编辑模式与确定性代码测试。
+
 ## 一键人工验收
 
 版本：`0.0.1-prototype`。需要 Node.js 22+、npm；实际验收环境为 macOS。

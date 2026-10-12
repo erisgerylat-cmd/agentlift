@@ -68,6 +68,7 @@ export interface RunResult {
   outcome: RunOutcome;
   success: boolean;
   tags?: string[];
+  extensionExpected?: boolean;
   durationMs: number;
   events: RunEvent[];
   validators: ValidatorResult[];

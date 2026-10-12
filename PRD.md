@@ -21,6 +21,12 @@ See [Claude Code acceptance](./CLAUDE-CODE.md). Offline contracts are verified;
 live Claude model calls await manual acceptance. Detailed Skill activation,
 conflict and context-overhead metrics below remain future requirements.
 
+Claude basic workflow now includes configurable editing tools and workspace
+validation, checksummed answer/file-change evidence, labeled activation/control
+rates and `workflow` orchestration. `prototype:claude` verifies working and
+regressed Skill/MCP with expected CI rejection. Activation rates are observed
+tool use, not instruction compliance; conflict/context analysis remains future.
+
 ## 1. Executive Summary
 
 AgentLift is a local-first experiment tool that measures whether an Agent

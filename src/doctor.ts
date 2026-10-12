@@ -46,7 +46,7 @@ export async function doctor(configFile?: string) {
       checks.push({ name: "Fixtures", status: "PASS", detail: `${suite.cases.length} cases; no symbolic links` });
       const reference = config.subject.runner.command.some(c => /runners[\\/]openai\.(js|ts)$/u.test(c));
       const claude = config.subject.runner.protocol === "claude-code";
-      if (claude) checks.push({ name: "Claude authentication",
+      if (claude && config.subject.runner.authentication !== "none") checks.push({ name: "Claude authentication",
         status: process.env[config.subject.model.apiKeyEnv] ||
           config.security.envAllowlist.includes("CLAUDE_CODE_OAUTH_TOKEN") && process.env.CLAUDE_CODE_OAUTH_TOKEN ? "PASS" : "FAIL",
         detail: "Explicit API key or allowlisted CLAUDE_CODE_OAUTH_TOKEN required; personal settings are not loaded" });

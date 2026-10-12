@@ -56,7 +56,8 @@ export async function lockEnvironment(config: LoadedImpactConfig, suite: LoadedT
   const skill = config.candidate.type === "skill"
     ? { name: config.candidate.name, digest: await fixtureDigest(config.candidate.path) } : undefined;
   const taskSuiteHash = digest(JSON.stringify(suite.cases.map(c => ({
-    id: c.id, task: c.task, tags: c.tags, validators: c.validators, fixture: fixtures[c.id],
+    id: c.id, task: c.task, tags: c.tags, extensionExpected: c.extensionExpected,
+    validators: c.validators, fixture: fixtures[c.id],
   }))));
   return {
     schemaVersion: 1,
@@ -77,6 +78,7 @@ export async function lockEnvironment(config: LoadedImpactConfig, suite: LoadedT
     comparisonKey: digest(JSON.stringify({
       taskSuiteHash, runtime, model: config.subject.model, protocol: config.subject.runner.protocol,
       allowedTools: config.subject.runner.allowedTools,
+      tools: config.subject.runner.tools, resultMode: config.subject.runner.resultMode,
       node: process.version, platform: process.platform, arch: process.arch,
     })),
     adapters: {

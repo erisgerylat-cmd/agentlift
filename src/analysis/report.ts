@@ -1,4 +1,5 @@
 import { summarizeImpact } from "./summary.js";
+import { analyzeExtension } from "./extensions.js";
 import type { ImpactReport, RunEvent, RunResult } from "../types.js";
 
 const round = (value: number) => Number(value.toFixed(4));
@@ -137,6 +138,7 @@ export function analyzeReport(report: ImpactReport) {
   summary.decision = decision;
   return {
     summary,
+    extension: analyzeExtension(report, valid),
     decision, reasons, distinctCases: caseStats.size,
     statistics: {
       baselineRatePct: baselineRate === null ? null : round(baselineRate * 100),
@@ -161,6 +163,7 @@ export function analyzeReport(report: ImpactReport) {
         ? candidate.success ? "unchanged-success" : "regressed"
         : candidate.success ? "improved" : "unchanged-failure",
       ...traceDiff(baseline, candidate),
+      fileChanges: candidate.events.filter(e => e.type === "file.change"),
     })),
   };
 }
@@ -184,6 +187,8 @@ export function renderReport(report: ImpactReport, markdown = false): string {
     `Estimated cost change: ${show(metrics.costUSD.relativePct)}%`,
     `Candidate tool error rate: ${show(metrics.candidateToolErrorRate)}`,
     ...(report.environment?.skill ? [`Observed candidate Skill tool calls: ${metrics.candidateSkillActivations}`] : []),
+    `Expected extension activation rate: ${show(analysis.extension.activationRate)}`,
+    `Control false activation rate: ${show(analysis.extension.falseActivationRate)}`,
     `Infrastructure failures: ${summary.infrastructureFailures}`,
     ...analysis.reasons.map(reason => `- ${reason}`),
     "",

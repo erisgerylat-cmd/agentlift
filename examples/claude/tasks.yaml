@@ -7,6 +7,7 @@ cases:
       extension exactly. If neither is available, return exactly NO_FINDING.
       Do not guess, search outside this workspace, or add explanations.
     tags: ["review", "synthetic"]
+    extensionExpected: true
     fixture:
       path: ../fixture
     validators:
@@ -17,6 +18,7 @@ cases:
       This is a formatting-only control. Do not invoke skills or MCP tools.
       Return exactly FORMAT_OK without Markdown or explanations.
     tags: ["control", "synthetic"]
+    extensionExpected: false
     fixture:
       path: ../fixture
     validators:

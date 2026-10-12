@@ -13,6 +13,7 @@ import { ClaudeSkillExtension } from "../src/extensions/claude-skill.js";
 import { runImpact } from "../src/impact.js";
 import { parseClaudeOutput } from "../src/runtimes/claude-code.js";
 import { runCommand } from "../src/process.js";
+import { runWorkflow } from "../src/workflow.js";
 
 test("Claude Code Skill and MCP offline A/B runs preserve fixtures, native traces and evidence", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "agentlift-claude-test-"));
@@ -145,5 +146,50 @@ process.exitCode=1;`);
         assert(report.runs.every(r => r.outcome === "task_failure"));
       }
     }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("Claude workspace workflow validates code edits, saves artifacts and enforces extension regression gates", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "agentlift-claude-code-"));
+  try {
+    const config = parse(await readFile("examples/claude/offline-skill.yaml", "utf8"));
+    config.subject.runner.cwd = path.resolve("examples/claude");
+    config.subject.runner.resultMode = "workspace";
+    config.subject.runner.tools = ["Read", "Edit", "Skill"];
+    config.subject.runner.allowedTools = ["Read", "Edit", "Skill"];
+    config.candidate.path = path.resolve("examples/claude/skills/race-review");
+    config.suite.file = path.resolve("examples/claude/code-tasks.yaml");
+    config.storage.output = path.join(root, "output");
+    const file = path.join(root, "config.json");
+    await writeFile(file, JSON.stringify(config));
+    const working = await runWorkflow(file);
+    assert.equal(working.exitCode, 0, JSON.stringify(working));
+    assert.equal(working.analysis!.summary.baselineSuccesses, 0);
+    assert.equal(working.analysis!.summary.candidateSuccesses, 2);
+    assert(working.analysis!.pairs.every(p => p.fileChanges.some(e => e.path === "sum.mjs")));
+    const artifacts = JSON.parse(await readFile(path.join(working.evidenceDir!, "artifacts.json"), "utf8"));
+    assert(artifacts.every((r: { changes: { path: string }[] }) => !r.changes.some(e => e.path === "result.txt")));
+    assert.equal((await loadReport(working.evidenceDir!)).summary.validPairs, 2);
+    const changed = path.join(root, "skill");
+    await cp(config.candidate.path, changed, { recursive: true });
+    await writeFile(path.join(changed, "reference.txt"), "WRONG_FINDING");
+    config.candidate.path = changed;
+    await writeFile(file, JSON.stringify(config));
+    const regressed = await runWorkflow(file, { before: working.evidenceDir, policy: { minSuccessDeltaPp: 1 } });
+    assert.equal(regressed.exitCode, 1);
+    assert.equal(regressed.comparison?.candidateSuccessChangePp, -100);
+    config.suite.file = path.resolve("examples/claude/tasks.yaml");
+    config.subject.runner.resultMode = "text";
+    await writeFile(file, JSON.stringify(config));
+    const labeled = await runWorkflow(file, { policy: { minActivationRate: 1, maxFalseActivationRate: 0 } });
+    assert.equal(labeled.analysis!.extension.activationRate, 1);
+    assert.equal(labeled.analysis!.extension.falseActivationRate, 0);
+    const cli = await runCommand({
+      command: [process.execPath, "--import", "tsx", path.resolve("src/cli.ts"), "workflow", "--config", file,
+        "--min-activation-rate=1", "--max-false-activation-rate=0"],
+      cwd: process.cwd(), timeoutMs: 15000,
+    });
+    assert.equal(cli.exitCode, 0, cli.stderr);
+    assert.equal(JSON.parse(cli.stdout).status, "PASS");
   } finally { await rm(root, { recursive: true, force: true }); }
 });

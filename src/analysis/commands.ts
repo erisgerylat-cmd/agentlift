@@ -6,6 +6,8 @@ export interface GatePolicy {
   maxCostIncreasePct?: number;
   maxToolErrorRate?: number;
   maxRegressions?: number;
+  minActivationRate?: number;
+  maxFalseActivationRate?: number;
 }
 
 export function evaluateGate(report: ImpactReport, policy: GatePolicy) {
@@ -19,6 +21,8 @@ export function evaluateGate(report: ImpactReport, policy: GatePolicy) {
     ["cost_increase_pct", analysis.metrics.costUSD.relativePct, policy.maxCostIncreasePct, "max"],
     ["tool_error_rate", analysis.metrics.candidateToolErrorRate, policy.maxToolErrorRate, "max"],
     ["regressions", analysis.pairs.filter(p => p.classification === "regressed").length, policy.maxRegressions, "max"],
+    ["activation_rate", analysis.extension.activationRate, policy.minActivationRate, "min"],
+    ["false_activation_rate", analysis.extension.falseActivationRate, policy.maxFalseActivationRate, "max"],
   ];
   for (const [name, value, threshold, direction] of checks) {
     if (threshold === undefined) continue;

@@ -2,6 +2,53 @@
 
 [简体中文](./CLAUDE-CODE.zh-CN.md)
 
+## Complete basic workflow
+
+```bash
+npm run prototype:claude
+```
+
+This verifies four offline experiments: working and regressed Skill/MCP.
+It covers doctor, impact, checksum validation and report rebuild, comparison and
+CI. Working experiments PASS; regressions FAIL with -50pp historical candidate
+success change. Open `.agentlift/claude-workflow/ACCEPTANCE.json`. No live model
+is called.
+
+For live runs:
+
+```bash
+node dist/cli.js workflow --config examples/claude/skill.yaml \
+  --min-success-delta-pp=0 --min-activation-rate=1 --max-false-activation-rate=0
+node dist/cli.js workflow --config examples/claude/mcp.yaml \
+  --before .agentlift/claude-skill --min-success-delta-pp=0
+```
+
+Preflight failure returns 2 before experimentation. Completed workflows retain
+checksummed experiment evidence and supplemental workflow.json. Gate exit codes
+are 0 PASS, 1 FAIL, 2 unavailable. Optional --before compares historical evidence.
+Case extensionExpected true/false labels expected activation and controls;
+unlabeled rates remain unavailable. Rates describe observed tool use in valid
+pairs, not instruction compliance.
+
+## Code editing tasks
+
+Configure subject.runner:
+
+```yaml
+resultMode: workspace
+tools: [Read, Glob, Grep, Skill, Edit, Write, Bash]
+allowedTools: [Read, Glob, Grep, Skill, Edit, Write, "Bash(node --test *)"]
+```
+
+Use suite.file ./code-tasks.yaml for the code repair fixture, validated with
+node --test sum.test.mjs. Replace fixtures and tests for actual business tasks.
+Tools limits available tools; allowedTools preapproves calls and dontAsk rejects
+others. Permission checks are not bypassed. Workspace mode does not generate or
+overwrite result.txt. Checksummed artifacts.json retains final answers and
+added/modified/deleted file hashes, not full changed files. Changes under .claude,
+.git and node_modules are excluded. Temporary fixture copies are cleaned after
+execution and validation.
+
 Run baseline vs Skill and baseline vs stdio MCP with the same Claude Code, model
 and task suite. Each experiment runs two cases twice in AB/BA order: eight CLI
 calls. `compare` can also compare the candidate outcomes across both experiments.
@@ -90,8 +137,8 @@ Paths resolve relative to the YAML file.
 Replace suite.file with your clean fixtures and deterministic validators.
 Final text is written to result.txt before validation; existing result files
 are never overwritten. Available tools are Read, Glob, Grep, Skill and candidate
-MCP tools. This runtime evaluates reading/review/text tasks, not repository
-editing. allowedTools controls automatic permissions within that set.
+MCP tools by default. Workspace mode can explicitly enable editing and Bash.
+allowedTools controls automatic permissions within the configured tools set.
 
 Fixtures must not include .claude, .mcp.json, .claude.json, CLAUDE.md,
 CLAUDE.local.md or symlinks. Fixture and Skill source hashes are checked after
@@ -104,8 +151,10 @@ filesystem or network sandbox.
 
 Offline CLI contracts and actual stdio MCP connections are verified. Live paid
 Claude Code calls have not been executed. Synthetic examples do not establish
-business impact; small samples remain INCONCLUSIVE. Dedicated activation rates,
-false triggering, conflicts and context overhead statistics are deferred.
+business impact; small samples remain INCONCLUSIVE. Labeled cases now support
+observed activation and false activation rates; conflicts and context overhead
+statistics remain deferred. authentication none is only for offline CLI fixtures,
+skipping credential preflight without providing live authentication.
 
 Report CLI version, config, exit code, redacted evidence and affected case.
 API/auth/process/protocol failures exclude the whole pair. Turn exhaustion or
