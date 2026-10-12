@@ -1,6 +1,6 @@
 {
   "name": "agentlift",
-  "version": "0.0.0",
+  "version": "0.0.1-prototype",
   "private": true,
   "description": "Measure the real impact of agent extensions.",
   "type": "module",
@@ -10,9 +10,11 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
+    "start": "npm run build && node dist/cli.js",
     "test": "tsx --test test/**/*.test.ts",
     "check": "npm run build && npm test",
     "demo": "tsx src/cli.ts impact --config examples/agentlift.yaml",
+    "prototype": "npm run build && node dist/demo.js",
     "impact:openai": "npm run build && node dist/cli.js impact --config examples/openai-agentlift.yaml"
   },
   "engines": {

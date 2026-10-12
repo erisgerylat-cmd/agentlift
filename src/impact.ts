@@ -53,6 +53,7 @@ async function runValidators(
   maxOutputBytes: number,
   env: NodeJS.ProcessEnv,
   secretValues: string[],
+  signal?: AbortSignal,
 ): Promise<ValidatorResult[]> {
   const results: ValidatorResult[] = [];
 
@@ -63,6 +64,7 @@ async function runValidators(
       timeoutMs,
       maxOutputBytes,
       env,
+      signal,
     });
     // A validator's numeric nonzero exit is a deterministic rejection.
     // Signals and transport/resource failures invalidate the experiment pair.
@@ -172,6 +174,7 @@ async function executeRun(
   runtime: RuntimeAdapter,
   extension: ExtensionAdapter,
   secretValues: string[],
+  signal?: AbortSignal,
 ): Promise<RunResult> {
   const runId = `${experimentId.slice(0, 8)}-${testCase.id}-${repeat}-${condition}`;
   const workspace = path.join(workspaceRoot, runId);
@@ -211,7 +214,9 @@ async function executeRun(
   const runtimeResult = await runtime.run({
     message,
     env,
+    signal,
   });
+  signal?.throwIfAborted();
   const validators = runtimeResult.failure
     ? []
     : await runValidators(
@@ -221,6 +226,7 @@ async function executeRun(
         config.security.maxOutputBytes,
         env,
         secretValues,
+        signal,
       );
   const outcome = classifyOutcome(runtimeResult, validators);
   const success = outcome === "task_success";
@@ -260,7 +266,10 @@ async function executeRun(
   };
 }
 
-export async function runImpact(configFile: string): Promise<ImpactReport> {
+export async function runImpact(
+  configFile: string, options: { signal?: AbortSignal } = {},
+): Promise<ImpactReport> {
+  options.signal?.throwIfAborted();
   const config = await loadImpactConfig(configFile);
   const suite = await loadTaskSuite(config.suitePath);
   if (suite.cases.length * config.execution.repeats * 2 > config.execution.maxRuns) {
@@ -268,7 +277,7 @@ export async function runImpact(configFile: string): Promise<ImpactReport> {
   }
   for (const testCase of suite.cases) {
     const relative = path.relative(testCase.fixture.path, config.outputDir);
-    if (!relative.startsWith("..") && !path.isAbsolute(relative)) {
+    if (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) {
       throw new Error("Output directory must not be inside a fixture");
     }
   }
@@ -316,6 +325,7 @@ export async function runImpact(configFile: string): Promise<ImpactReport> {
     for (const testCase of suite.cases) {
       for (let repeat = 1; repeat <= config.execution.repeats; repeat += 1) {
         for (const condition of conditionOrderForRepeat(repeat)) {
+          options.signal?.throwIfAborted();
           runs.push(
             await executeRun(
               config,
@@ -327,6 +337,7 @@ export async function runImpact(configFile: string): Promise<ImpactReport> {
               runtime,
               extension,
               secretValues,
+              options.signal,
             ),
           );
         }
@@ -342,6 +353,7 @@ export async function runImpact(configFile: string): Promise<ImpactReport> {
     }
   }
 
+  options.signal?.throwIfAborted();
   for (const testCase of suite.cases) {
     if (await fixtureDigest(testCase.fixture.path) !== environment.fixtures[testCase.id]) {
       throw new Error("Original fixture changed during experiment; results are invalid");

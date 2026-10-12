@@ -9,9 +9,12 @@ MCP server improves task outcomes enough to justify its cost and complexity.
 
 ## Status
 
-Early development. The offline demo uses a deterministic Agent and stdio MCP.
-An OpenAI-compatible reference runner is also available for text-answer tasks,
-with local HTTP/stdio integration tests.
+`0.0.1-prototype`: a runnable local CLI for manual acceptance. The core workflow
+is `doctor → impact → report → compare → ci`. Includes YAML/JSONL suites,
+independent evidence bundles, offline reports, conservative statistics, tool
+sequence differences and an OpenAI-compatible text runner.
+
+See [PROTOTYPE.md](./PROTOTYPE.md) for the full acceptance guide (Chinese).
 
 ## Quick Start
 
@@ -22,21 +25,43 @@ Requirements:
 
 ```bash
 npm install
-npm run demo
+npm run prototype
 ```
 
-Expected smoke result:
+This starts a local simulated model, runs working and intentionally regressed
+MCP scenarios, verifies reports/comparison/CI, then shuts down the server. No
+API credentials are needed. Open `.agentlift/prototype/ACCEPTANCE.md` for report paths.
+Expected results: working Candidate `4/4`, regressed Candidate `2/4`, historical
+change `-50pp`, CI `PASS` and expected `FAIL`. Both are small synthetic suites
+and keep decision `INCONCLUSIVE`.
+
+For the smaller deterministic smoke experiment, run `npm run demo`:
 
 ```text
-Valid pairs: 4; excluded pairs: 0
+Decision: INCONCLUSIVE
+Pairs: 4; valid: 4; excluded: 0
 Baseline: 2/4 successful
 Candidate: 4/4 successful
-Infrastructure failures: 0
 Observed delta: 50pp
-Decision: INCONCLUSIVE (smoke run; no confidence interval yet)
+95% lift interval: 0 to 100pp
 ```
 
-The structured result is written to `.agentlift/results.json`.
+Each experiment writes to `.agentlift/<experimentId>/`. `.agentlift/results.json`
+is the latest compatibility copy. Evidence includes locked metadata, checksums,
+traces, `results.json`, `analysis.json` and `report.md`.
+
+```bash
+npm run build
+node dist/cli.js doctor --config examples/agentlift.yaml
+node dist/cli.js report .agentlift/prototype/working
+node dist/cli.js compare .agentlift/prototype/working .agentlift/prototype/regression
+node dist/cli.js ci --evidence .agentlift/prototype/working --min-success-delta-pp=1
+```
+
+`report` supports `--json` and `--output`; `compare` checks task/fixture/Agent/model
+compatibility. CI uses explicit thresholds, returns 0 for pass, 1 for violation
+and 2 for unavailable evidence or invalid input. The default minimum lift is 0pp.
+Ctrl+C interrupts `impact` and cleans its running process group and workspace.
 
 ## OpenAI-compatible Reference Runner
 
@@ -69,10 +94,15 @@ Optional `subject.model` fields:
 | `maxTokens` | `2048` | `max_tokens` per completion, not a total experiment budget |
 | `maxTurns` | `8` | Maximum completion requests per run |
 | `requestTimeoutMs` | `30000` | Per HTTP/MCP request timeout; the execution timeout still caps the run |
+| `inputPricePerMillion` | unavailable | User-declared USD per million input tokens |
+| `outputPricePerMillion` | unavailable | User-declared USD per million output tokens |
 
 Provider token counts and returned model identity are captured in `model.usage`
-events; missing counts are `null`. No token-price estimates, confidence
-intervals, or automatic retries are added. API redirects are rejected.
+events; missing counts are `null`. Cost estimates require the declared prices.
+Lift intervals use 2000 seeded case-cluster bootstrap samples; Wilson rate
+intervals are descriptive. Recommendations require at least 10 cases and 20
+valid pairs, a case-level sign test, positive interval, and the declared cost budget.
+No automatic retries are added. API redirects are rejected.
 HTTP responses, runner input, MCP messages/results and MCP stderr are bounded
 at 1 MiB; model request bodies are bounded at 4 MiB. Discovery supports at most
 128 tools across 16 pages and each completion at most 32 calls.
@@ -147,6 +177,13 @@ the Agent workspace.
 npm run build
 npm test
 npm run check
+npm run prototype
 ```
+
+Validated on macOS; Linux is a target but has not been verified in this environment.
+Process isolation requires trusted commands and does not restrict host filesystem
+or network access. Container isolation, LLM judges, additional validator types,
+Skill evaluation and Web UI are outside this prototype. Live paid-provider
+compatibility still requires manual testing.
 
 Product scope and acceptance criteria are defined in [PRD.md](./PRD.md).

@@ -78,6 +78,7 @@ export class GenericCommandRuntime implements RuntimeAdapter {
       maxOutputBytes: this.options.maxOutputBytes,
       input: `${JSON.stringify(request.message)}\n`,
       env: request.env,
+      signal: request.signal,
     });
     const parsed = parseEvents(result.stdout, result.stdoutTruncated);
 

@@ -3,6 +3,7 @@ import type { ExecutionFailure, RunEvent, RunStartMessage } from "../types.js";
 export interface RuntimeRunRequest {
   message: RunStartMessage;
   env: NodeJS.ProcessEnv;
+  signal?: AbortSignal;
 }
 
 export interface RuntimeExecution {

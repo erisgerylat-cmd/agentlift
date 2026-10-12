@@ -7,6 +7,14 @@
 > Updated: 2026-10-10
 > Product name: AgentLift (repository created; package availability not verified)
 
+Implementation checkpoint: `0.0.1-prototype` now delivers the core CLI workflow
+(`doctor`, `impact`, offline `report`, `compare`, `ci`). See
+[prototype acceptance guide](./PROTOTYPE.md) for runnable commands and current
+limits. Sections below include later Beta requirements; additional validators,
+LLM judges, container isolation, Skill evaluation and Web UI are not implemented
+in this prototype. Intervals use seeded case-cluster bootstrap and a case-level
+sign test; case-subgroup enablement is not automated.
+
 ## 1. Executive Summary
 
 AgentLift is a local-first experiment tool that measures whether an Agent

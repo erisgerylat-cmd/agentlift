@@ -67,9 +67,18 @@ async function main() {
     process.exitCode = result.ok ? 0 : 1;
   } else if (command === "impact") {
     process.stderr.write("Running external commands with host filesystem/network permissions. Use trusted fixtures and test credentials.\n");
-    const report = await runImpact(required("config"));
-    print(report, formatImpactReport(report) + `Evidence: ${report.evidenceDir}`);
-    if (report.summary.infrastructureFailures > 0) process.exitCode = 1;
+    const controller = new AbortController();
+    const interrupt = () => controller.abort(new Error("Experiment interrupted; temporary resources cleaned"));
+    process.once("SIGINT", interrupt);
+    process.once("SIGTERM", interrupt);
+    try {
+      const report = await runImpact(required("config"), { signal: controller.signal });
+      print(report, formatImpactReport(report) + `Evidence: ${report.evidenceDir}`);
+      if (report.summary.infrastructureFailures > 0) process.exitCode = 1;
+    } finally {
+      process.removeListener("SIGINT", interrupt);
+      process.removeListener("SIGTERM", interrupt);
+    }
   } else if (command === "report") {
     const report = await loadReport(positionals[0]!);
     const result = values.json ? JSON.stringify(analyzeReport(report), null, 2) + "\n" : renderReport(report, true);

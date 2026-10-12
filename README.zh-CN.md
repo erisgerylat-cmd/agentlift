@@ -33,22 +33,25 @@ Candidate: 相同 Agent + Model + Tasks，仅启用待测扩展
 
 ## 当前状态
 
-项目处于早期开发阶段，已经完成 W1 技术 Spike 和一个可离线运行的最小垂直闭环：
+当前为 `0.0.1-prototype` 本地 CLI 人工验收版，完整操作说明见
+[PROTOTYPE.md](./PROTOTYPE.md)。主链路为 `doctor → impact → report → compare → ci`：
 
 - Generic Command Agent；
 - OpenAI-compatible 文本任务参考 Runner（本地 HTTP/stdio 联调已通过）；
 - stdio MCP Extension；
-- YAML 任务集；
+- YAML/JSONL 任务集；
 - 确定性命令验证器；
 - Baseline/Candidate 成对运行；
 - AB/BA 平衡执行顺序；
 - 最小规范化 Trace；
 - Terminal 与 JSON 结果；
+- Case 聚类 Bootstrap、描述性 Wilson 区间、保守启用建议；
+- 证据包、Markdown 离线报告、工具序列差异、历史比较和 CI 门禁；
 - 临时工作区、临时 HOME 和环境变量白名单；
 - stdout/stderr 大小限制、Secret 脱敏和进程树清理。
 
-当前输出属于 **Smoke 结果**。它用于验证技术链路，不提供统计置信区间，因此决策
-固定为 `INCONCLUSIVE`，不能直接作为正式启用建议。
+内置演示使用小样本合成任务，虽然展示区间，决策仍为 `INCONCLUSIVE`。
+只有样本数、统计证据和成本预算均满足要求，才会产生启用建议。
 
 ## 快速开始
 
@@ -61,34 +64,45 @@ Candidate: 相同 Agent + Model + Tasks，仅启用待测扩展
 
 ```bash
 npm install
-npm run demo
+npm run prototype
 ```
 
-预期输出：
+该命令自动启动本地模拟模型、连接真实 stdio 子进程，完成正常 MCP 与故意退化 MCP
+两组实验，校验离线报告、历史比较及 CI 门禁，然后关闭模型服务。无需配置 API Key。
+
+运行后打开 `.agentlift/prototype/ACCEPTANCE.md`，可获得两份报告的位置。
+预期正常 Candidate `4/4`、退化 Candidate `2/4`，历史变化 `-50pp`；
+CI 分别显示 PASS 和预期 FAIL。这些合成任务仅验证链路，不证明真实 MCP 收益。
+
+也可运行较小的 `npm run demo`，预期输出包括：
 
 ```text
-Valid pairs: 4; excluded pairs: 0
+Decision: INCONCLUSIVE
+Pairs: 4; valid: 4; excluded: 0
 Baseline: 2/4 successful
 Candidate: 4/4 successful
 Infrastructure failures: 0
 Observed delta: 50pp
-Decision: INCONCLUSIVE (smoke run; no confidence interval yet)
+95% lift interval: 0 to 100pp
 ```
 
-结构化结果会写入：
+较小 Demo 的最近一次结构化结果写入：
 
 ```text
 .agentlift/results.json
 ```
 
+每次实验另有 `.agentlift/<experimentId>/` 独立目录，包含 JSON、Markdown、Trace、
+环境锁与校验清单。历史数据不会因运行下一个实验而覆盖。
+
 ### 如何理解示例结果
 
-- `Valid pairs: 4; excluded pairs: 0`：四个配对的两侧均无基础设施故障；
+- `Pairs: 4; valid: 4; excluded: 0`：四个配对的两侧均无基础设施故障；
 - `Baseline: 2/4 successful`：未启用 MCP 的四次运行中，两次通过确定性验证；
 - `Candidate: 4/4 successful`：启用 MCP 后四次运行全部通过；
 - `Infrastructure failures: 0`：没有超时、进程异常或输出溢出等基础设施失败；
 - `Observed delta: 50pp`：候选组成功率比基线组高 50 个百分点；
-- `INCONCLUSIVE`：当前只是小样本 Smoke 实验，没有置信区间，不能过度解读。
+- `INCONCLUSIVE`：当前只有两个 Case，区间不能作为稳定增益的证明。
 
 ## 当前执行流程
 
@@ -151,7 +165,8 @@ run.end
 AgentLift 会过滤 Runtime 重复产生的 `run.start`、`validation` 和 `run.end`，
 再生成顺序稳定的规范化事件。OpenAI-compatible 参考 Runner 额外输出 `model.usage`
 事件，记录 Provider 返回的 Token 数与模型身份；缺失指标为 `null`。复杂的语义
-Trace 对齐、Token 成本换算和文件变更事件尚未实现。
+Trace 对齐和文件变更事件尚未实现。简单工具序列与首个可观察差异已保存在
+`analysis.json`；Token 成本可根据显式单价估算。
 
 ## 配置文件
 
@@ -337,6 +352,8 @@ Prompt 发送给模型，按需调用 Candidate MCP，再把最终文本写入�
 | `maxTokens` | `2048` | 每次请求的 `max_tokens`，不是整个实验的总预算 |
 | `maxTurns` | `8` | 每次运行最多请求模型的轮数 |
 | `requestTimeoutMs` | `30000` | 每个 HTTP/MCP 请求超时；外层 `execution.timeoutMs` 仍限制整次运行 |
+| `inputPricePerMillion` | 不可用 | 每百万输入 Token 的美元单价 |
+| `outputPricePerMillion` | 不可用 | 每百万输出 Token 的美元单价 |
 
 模型凭证只在 Agent 中读取，不自动传给 MCP。MCP 继承运行目录变量和命令搜索路径，
 以及 `candidate.envAllowlist` 显式列出的变量。采集事件会脱敏已知凭证值；模型请求
@@ -457,10 +474,13 @@ npm run demo
 
 - 只支持 Generic Command Runtime；
 - 只支持 stdio MCP；
-- 只支持 YAML 任务集和命令验证器；
-- 尚未计算 Wilson 区间、Bootstrap 区间或 McNemar 检验；
-- 已采集 Provider 返回的 Token 与模型名，但尚未计算成本或检测模型版本漂移；
-- 尚未实现 Trace Diff、证据包、历史比较和 CI 门禁；
+- 支持 YAML/JSONL 任务集，确定性验证器目前为命令验证器；
+- 已实现 Wilson 与 Case 聚类 Bootstrap，正式建议另用 Case 级符号检验；
+- 已有显式定价成本估算和模型标识变化检测，无法证明 Provider 内部版本完全锁定；
+- Trace Diff 只比较工具事件顺序及首个参数/结果差异，不做通用语义对齐；
+- 已在 macOS 验证，当前环境未执行 Linux 验收；
+- 进程隔离适用于可信命令，不等同于操作系统文件/网络沙箱；
+- LLM Judge、更多验证器、容器后端、Web UI 属于后续扩展；
 - 尚未提供原生 Claude Code、Codex、Qoder 或 Trae Adapter；
 - 尚未支持 Skill 影响评估。
 

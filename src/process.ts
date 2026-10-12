@@ -20,6 +20,7 @@ export interface RunCommandOptions {
   maxOutputBytes?: number;
   input?: string;
   env?: NodeJS.ProcessEnv;
+  signal?: AbortSignal;
 }
 
 function terminateProcessTree(pid: number | undefined, signal: NodeJS.Signals) {
@@ -70,6 +71,7 @@ export async function runCommand(
   }
 
   const startedAt = Date.now();
+  options.signal?.throwIfAborted();
   const maxOutputBytes = options.maxOutputBytes ?? 1_048_576;
 
   return await new Promise<CommandResult>((resolve) => {
@@ -102,6 +104,12 @@ export async function runCommand(
         terminateProcessTree(child.pid, "SIGKILL");
       }, 500);
     };
+    const abort = () => {
+      failure = { code: "process_exit", message: "Command interrupted" };
+      terminate();
+    };
+    options.signal?.addEventListener("abort", abort, { once: true });
+    if (options.signal?.aborted) abort();
 
     const appendOutput = (
       current: string,
@@ -167,6 +175,7 @@ export async function runCommand(
         return;
       }
       settled = true;
+      options.signal?.removeEventListener("abort", abort);
       clearTimeout(timeout);
       if (forceKillTimer) {
         clearTimeout(forceKillTimer);

@@ -7,6 +7,12 @@
 > 更新日期：2026-10-10
 > 产品名称：AgentLift（GitHub 仓库已创建，npm 包名可用性尚未确认）
 
+实现检查点：`0.0.1-prototype` 已覆盖 `doctor`、`impact`、离线 `report`、
+`compare`、`ci` 核心链路。启动与验收步骤见 [原型说明](./PROTOTYPE.md)。
+本文后续章节仍包含 Beta 目标；更多验证器、LLM Judge、容器隔离、Skill 和 Web UI
+不在当前原型中。当前区间采用固定种子的 Case 聚类 Bootstrap 和 Case 级符号检验，
+不会自动对任务子组给出条件启用建议。
+
 ## 1. 执行摘要
 
 AgentLift 是一个本地优先的实验工具，用于衡量 Agent 扩展是否创造了真实的净价值。
