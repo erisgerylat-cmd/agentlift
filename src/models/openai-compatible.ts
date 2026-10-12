@@ -79,6 +79,7 @@ export class OpenAICompatibleClient {
   private readonly apiKey: string;
 
   constructor(private readonly config: ModelConfig) {
+    if (config.provider !== "openai-compatible") throw new Error("Reference runner requires an OpenAI-compatible model");
     const baseUrl = process.env[config.baseUrlEnv];
     const apiKey = process.env[config.apiKeyEnv];
     if (!baseUrl || !apiKey) {

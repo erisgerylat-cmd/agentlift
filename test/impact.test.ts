@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { parse } from "yaml";
 
 import { runImpact } from "../src/impact.js";
 import { runCommand } from "../src/process.js";
@@ -13,13 +14,17 @@ const projectRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const outputDir = path.join(projectRoot, ".agentlift");
-
 test("runs a paired baseline/candidate MCP smoke experiment", async () => {
+  const outputDir = await mkdtemp(path.join(os.tmpdir(), "agentlift-smoke-test-"));
   try {
-    const report = await runImpact(
-      path.join(projectRoot, "examples", "agentlift.yaml"),
-    );
+    const config = parse(await readFile(path.join(projectRoot, "examples", "agentlift.yaml"), "utf8"));
+    config.subject.runner.cwd = path.join(projectRoot, "examples");
+    config.candidate.cwd = path.join(projectRoot, "examples");
+    config.suite.file = path.join(projectRoot, "examples", "tasks.yaml");
+    config.storage.output = path.join(outputDir, "evidence");
+    const file = path.join(outputDir, "config.json");
+    await writeFile(file, JSON.stringify(config));
+    const report = await runImpact(file);
 
     assert.equal(report.runs.length, 8);
     assert.equal(report.summary.totalPairs, 4);

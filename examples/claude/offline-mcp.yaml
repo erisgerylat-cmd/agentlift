@@ -1,0 +1,23 @@
+version: 1
+kind: extension-impact
+subject:
+  runner:
+    protocol: claude-code
+    command: ["node", "./fake-claude.mjs"]
+  model:
+    provider: claude-code
+    name: offline-model
+candidate:
+  type: mcp
+  name: race-review
+  transport: stdio
+  command: ["node", "./fake-mcp.mjs"]
+  cwd: ..
+suite:
+  file: ./tasks.yaml
+execution:
+  repeats: 2
+  timeoutMs: 15000
+storage:
+  capture: redacted
+  output: ../../.agentlift/claude-offline-mcp

@@ -9,16 +9,20 @@
 
 实现检查点：`0.0.1-prototype` 已覆盖 `doctor`、`impact`、离线 `report`、
 `compare`、`ci` 核心链路。启动与验收步骤见 [原型说明](./PROTOTYPE.md)。
-本文后续章节仍包含 Beta 目标；更多验证器、LLM Judge、容器隔离、Skill 和 Web UI
+本文后续章节仍包含 Beta 目标；更多验证器、LLM Judge、容器隔离和 Web UI
 不在当前原型中。当前区间采用固定种子的 Case 聚类 Bootstrap 和 Case 级符号检验，
 不会自动对任务子组给出条件启用建议。
+
+Claude Code 检查点：已实现基础 Skill 与 stdio MCP 成对实验、临时配置、
+原生工具轨迹与 CLI Token/成本估算。见 [Claude Code 验收](./CLAUDE-CODE.zh-CN.md)。
+离线契约已验证，真实 Claude 模型调用待人工验收；专门的 Skill 触发率、冲突与
+上下文开销指标仍属于后续目标。
 
 ## 1. 执行摘要
 
 AgentLift 是一个本地优先的实验工具，用于衡量 Agent 扩展是否创造了真实的净价值。
 
-第一阶段只支持 MCP Server。只有当 MCP 工作流经过真实用户验证后，才扩展到 Skill
-评估。
+首个扩展类型是 MCP Server。基础 Skill 评估已以 Claude Code 作为首个原生宿主实现。
 
 产品只回答一个核心问题：
 
@@ -1019,7 +1023,7 @@ W1 技术 Spike 必须回答：
 如果 W1 不能闭环，应重新评估产品假设，而不是继续搭建工程框架。如果外部证据到达
 更早，Beta 可以在 W8 发布；不能为了填满十周而增加范围。
 
-Skill、原生 Agent Adapter 和广泛生态集成，只有在真实 MCP 使用验证需求后才开始。
+更广泛的 Skill、其他原生 Agent Adapter 和生态集成，只有在实际使用验证需求后才开始。
 
 ## 24. 成功指标
 
@@ -1129,7 +1133,7 @@ Candidate: 临时注入 Skill
 - 按任务类别划分的提升；
 - 对模型和 Agent 的敏感性。
 
-只有 MCP 垂直工作流满足 MVP 验收条件后，才开始 Skill 支持。
+更广泛的 Skill 支持仍需实际使用验收；Claude Code 基础接入已完成。
 
 ## 29. 术语表
 

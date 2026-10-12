@@ -8,8 +8,8 @@ AgentLift 是一个本地优先的实验工具，用于比较同一个 Agent 在
 “启用扩展”（即对配置变化前后效果的对比实现对配置改动价值的评估）两种条件下的任务表现，从而判断一个 MCP Server 或 Skill 是否真正
 提高了任务成功率，以及这种提升是否值得新增的成本、耗时和风险。
 
-当前版本优先支持 stdio MCP。Skill、多 Agent、在线平台和复杂评测能力将在 MCP
-垂直闭环被真实用户验证后再考虑。
+当前版本支持 stdio MCP，并以 Claude Code 为首个原生宿主支持基础 Skill 影响实验。
+多 Agent、在线平台和复杂评测能力留待实际使用反馈后迭代。
 
 ## 为什么需要 AgentLift
 
@@ -35,6 +35,11 @@ Candidate: 相同 Agent + Model + Tasks，仅启用待测扩展
 
 当前为 `0.0.1-prototype` 本地 CLI 人工验收版，完整操作说明见
 [PROTOTYPE.md](./PROTOTYPE.md)。主链路为 `doctor → impact → report → compare → ci`：
+
+Claude Code 可分别运行“无扩展 vs Skill”和“无扩展 vs MCP”。先执行
+`npm run demo:claude` 验证离线链路，再配置认证并运行 `npm run impact:claude:skill`
+或 `npm run impact:claude:mcp`。详细步骤与验证边界见
+[Claude Code 测试指南](./CLAUDE-CODE.zh-CN.md)。
 
 - Generic Command Agent；
 - OpenAI-compatible 文本任务参考 Runner（本地 HTTP/stdio 联调已通过）；
@@ -481,8 +486,8 @@ npm run demo
 - 已在 macOS 验证，当前环境未执行 Linux 验收；
 - 进程隔离适用于可信命令，不等同于操作系统文件/网络沙箱；
 - LLM Judge、更多验证器、容器后端、Web UI 属于后续扩展；
-- 尚未提供原生 Claude Code、Codex、Qoder 或 Trae Adapter；
-- 尚未支持 Skill 影响评估。
+- 已提供 Claude Code 原生读取/文本任务 Adapter；Codex、Qoder 和 Trae 尚未接入；
+- Skill 影响评估目前仅支持 Claude Code，真实模型调用待人工验收。
 
 ## 路线图摘要
 

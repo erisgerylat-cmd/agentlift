@@ -1,0 +1,24 @@
+version: 1
+cases:
+  - id: review-race-condition
+    task: >-
+      Review the race condition using the race-review skill if it is available,
+      or the review_code MCP tool if available. Return the verdict from that
+      extension exactly. If neither is available, return exactly NO_FINDING.
+      Do not guess, search outside this workspace, or add explanations.
+    tags: ["review", "synthetic"]
+    fixture:
+      path: ../fixture
+    validators:
+      - type: command
+        command: ["node", "check-result.mjs", "RACE_FOUND"]
+  - id: formatting-control
+    task: >-
+      This is a formatting-only control. Do not invoke skills or MCP tools.
+      Return exactly FORMAT_OK without Markdown or explanations.
+    tags: ["control", "synthetic"]
+    fixture:
+      path: ../fixture
+    validators:
+      - type: command
+        command: ["node", "check-result.mjs", "FORMAT_OK"]

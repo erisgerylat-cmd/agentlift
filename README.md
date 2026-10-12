@@ -5,7 +5,7 @@
 Measure the real impact of agent extensions.
 
 AgentLift runs paired baseline/candidate experiments to determine whether an
-MCP server improves task outcomes enough to justify its cost and complexity.
+MCP server or Claude Code Skill improves task outcomes enough to justify its cost and complexity.
 
 ## Status
 
@@ -15,6 +15,11 @@ independent evidence bundles, offline reports, conservative statistics, tool
 sequence differences and an OpenAI-compatible text runner.
 
 See [PROTOTYPE.md](./PROTOTYPE.md) for the full acceptance guide (Chinese).
+
+Claude Code now supports baseline vs Skill and baseline vs stdio MCP. Start
+with `npm run demo:claude`, then use `npm run impact:claude:skill` or
+`npm run impact:claude:mcp` with your credentials. See the
+[Claude Code guide](./CLAUDE-CODE.md) for setup and validation scope.
 
 ## Quick Start
 
@@ -183,7 +188,7 @@ npm run prototype
 Validated on macOS; Linux is a target but has not been verified in this environment.
 Process isolation requires trusted commands and does not restrict host filesystem
 or network access. Container isolation, LLM judges, additional validator types,
-Skill evaluation and Web UI are outside this prototype. Live paid-provider
+Skills are supported through Claude Code; Web UI remains outside this prototype. Live paid-provider
 compatibility still requires manual testing.
 
 Product scope and acceptance criteria are defined in [PRD.md](./PRD.md).

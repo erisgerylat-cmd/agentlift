@@ -19,16 +19,17 @@ const impactConfigSchema = z
       .object({
         runner: z
           .object({
-            protocol: z.literal("jsonl"),
+            protocol: z.enum(["jsonl", "claude-code"]),
             command: commandSchema,
             cwd: z.string().optional(),
+            allowedTools: z.array(z.string().min(1)).optional(),
           })
           .strict(),
         model: modelConfigSchema,
       })
       .strict(),
-    candidate: z
-      .object({
+    candidate: z.discriminatedUnion("type", [
+      z.object({
         type: z.literal("mcp"),
         name: z.string().min(1).default("candidate"),
         transport: z.literal("stdio"),
@@ -37,6 +38,14 @@ const impactConfigSchema = z
         envAllowlist: z.array(envNameSchema).default([]),
       })
       .strict(),
+      z.object({
+        type: z.literal("skill"),
+        name: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u).max(64),
+        path: z.string().min(1),
+        cwd: z.string().optional(),
+        envAllowlist: z.array(envNameSchema).length(0).default([]),
+      }).strict(),
+    ]),
     suite: z
       .object({
         file: z.string().min(1),
@@ -165,6 +174,16 @@ export async function loadImpactConfig(
   );
   envNameSchema.parse(parsed.subject.model.baseUrlEnv);
   envNameSchema.parse(parsed.subject.model.apiKeyEnv);
+  const claude = parsed.subject.runner.protocol === "claude-code";
+  if (claude !== (parsed.subject.model.provider === "claude-code")) {
+    throw new Error("Claude Code runner and model provider must be configured together");
+  }
+  if (parsed.candidate.type === "skill" && !claude) {
+    throw new Error("Skill candidates require the Claude Code runner");
+  }
+  if (!claude && parsed.subject.runner.allowedTools !== undefined) {
+    throw new Error("allowedTools is only supported by the Claude Code runner");
+  }
 
   return {
     ...parsed,
@@ -180,6 +199,8 @@ export async function loadImpactConfig(
     candidate: {
       ...parsed.candidate,
       cwd: path.resolve(configDir, parsed.candidate.cwd ?? "."),
+      ...(parsed.candidate.type === "skill"
+        ? { path: path.resolve(configDir, parsed.candidate.path) } : {}),
     },
     suitePath: path.resolve(configDir, parsed.suite.file),
     outputDir: path.resolve(configDir, parsed.storage.output),

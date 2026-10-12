@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { loadImpactConfig, loadTaskSuite } from "./config.js";
 import { assertSafeFixture } from "./security.js";
+import { ClaudeSkillExtension } from "./extensions/claude-skill.js";
 
 async function executable(command: string, cwd: string): Promise<boolean> {
   const candidates = command.includes("/") || command.includes("\\")
@@ -25,10 +26,15 @@ export async function doctor(configFile?: string) {
       const suite = await loadTaskSuite(config.suitePath);
       const runs = suite.cases.length * config.execution.repeats * 2;
       checks.push({ name: "Plan", status: runs <= config.execution.maxRuns ? "PASS" : "FAIL", detail: `${runs} runs; cap ${config.execution.maxRuns}` });
-      for (const [name, command, cwd] of [
+      const commands: [string, string[], string][] = [
         ["Agent", config.subject.runner.command, config.subject.runner.cwd],
-        ["MCP", config.candidate.command, config.candidate.cwd],
-      ] as const) {
+      ];
+      if (config.candidate.type === "mcp") commands.push(["MCP", config.candidate.command, config.candidate.cwd]);
+      else {
+        await new ClaudeSkillExtension(config.candidate).validate();
+        checks.push({ name: "Skill", status: "PASS", detail: "SKILL.md validated; snapshot injection enabled" });
+      }
+      for (const [name, command, cwd] of commands) {
         checks.push({ name, status: await executable(command[0]!, cwd) ? "PASS" : "FAIL", detail: "Executable lookup (no command executed)" });
         await access(cwd);
         // Check obvious local script arguments too, including a missing build.
@@ -39,7 +45,12 @@ export async function doctor(configFile?: string) {
       for (const c of suite.cases) await assertSafeFixture(c.fixture.path);
       checks.push({ name: "Fixtures", status: "PASS", detail: `${suite.cases.length} cases; no symbolic links` });
       const reference = config.subject.runner.command.some(c => /runners[\\/]openai\.(js|ts)$/u.test(c));
-      for (const name of [config.subject.model.baseUrlEnv, config.subject.model.apiKeyEnv]) {
+      const claude = config.subject.runner.protocol === "claude-code";
+      if (claude) checks.push({ name: "Claude authentication",
+        status: process.env[config.subject.model.apiKeyEnv] ||
+          config.security.envAllowlist.includes("CLAUDE_CODE_OAUTH_TOKEN") && process.env.CLAUDE_CODE_OAUTH_TOKEN ? "PASS" : "FAIL",
+        detail: "Explicit API key or allowlisted CLAUDE_CODE_OAUTH_TOKEN required; personal settings are not loaded" });
+      for (const name of claude ? [] : [config.subject.model.baseUrlEnv, config.subject.model.apiKeyEnv]) {
         checks.push({ name: `Environment ${name}`, status: process.env[name] ? "PASS" : reference ? "FAIL" : "WARN", detail: process.env[name] ? "set (value hidden)" : "not set" });
       }
     } catch (error) {

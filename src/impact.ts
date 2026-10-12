@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { access, cp, mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -15,6 +15,8 @@ import {
 } from "./config.js";
 import type { ExtensionAdapter } from "./extensions/extension-adapter.js";
 import { StdioMcpExtension } from "./extensions/stdio-mcp.js";
+import { ClaudeSkillExtension } from "./extensions/claude-skill.js";
+import { ClaudeCodeRuntime } from "./runtimes/claude-code.js";
 import { runCommand } from "./process.js";
 import { GenericCommandRuntime } from "./runtimes/generic-command.js";
 import type {
@@ -187,6 +189,14 @@ async function executeRun(
     errorOnExist: true,
   });
   await assertSafeFixture(workspace);
+  if (config.subject.runner.protocol === "claude-code") {
+    for (const entry of [".claude", ".mcp.json", ".claude.json", "CLAUDE.md", "CLAUDE.local.md"]) {
+      const exists = await access(path.join(workspace, entry)).then(() => true, () => false);
+      if (exists) throw new Error(`Claude Code fixture must not contain pre-existing ${entry}`);
+    }
+  }
+  const skillConfig = extension instanceof ClaudeSkillExtension
+    ? await extension.prepare(workspace, condition) : undefined;
 
   const env = await createIsolatedEnvironment(stateRoot, [
     ...config.security.envAllowlist,
@@ -209,6 +219,7 @@ async function executeRun(
     },
     model: config.subject.model,
     mcpConfig,
+    ...(skillConfig ? { skillConfig } : {}),
   };
 
   const runtimeResult = await runtime.run({
@@ -286,18 +297,17 @@ export async function runImpact(
   const workspaceRoot = await mkdtemp(
     path.join(os.tmpdir(), "agentlift-impact-"),
   );
-  const runtime = new GenericCommandRuntime({
+  const Runtime = config.subject.runner.protocol === "claude-code" ? ClaudeCodeRuntime : GenericCommandRuntime;
+  const runtime = new Runtime({
     command: config.subject.runner.command,
     cwd: config.subject.runner.cwd,
     timeoutMs: config.execution.timeoutMs,
     maxOutputBytes: config.security.maxOutputBytes,
+    allowedTools: config.subject.runner.allowedTools,
   });
-  const extension = new StdioMcpExtension({
-    name: config.candidate.name,
-    command: config.candidate.command,
-    cwd: config.candidate.cwd,
-    envAllowlist: config.candidate.envAllowlist,
-  });
+  const extension = config.candidate.type === "skill"
+    ? new ClaudeSkillExtension(config.candidate)
+    : new StdioMcpExtension(config.candidate);
   const secretValues = environmentValues([
     ...config.security.envAllowlist,
     config.subject.model.baseUrlEnv,
@@ -309,6 +319,10 @@ export async function runImpact(
 
   try {
     await extension.validate();
+    if (config.candidate.type === "skill" &&
+        await fixtureDigest(config.candidate.path) !== environment.skill?.digest) {
+      throw new Error("Skill changed before experiment installation");
+    }
     await extension.install(workspaceRoot);
     extensionInstalled = true;
 
@@ -359,8 +373,16 @@ export async function runImpact(
       throw new Error("Original fixture changed during experiment; results are invalid");
     }
   }
+  if (config.candidate.type === "skill" &&
+      await fixtureDigest(config.candidate.path) !== environment.skill?.digest) {
+    throw new Error("Original skill changed during experiment; results are invalid");
+  }
+  const versions = runs.flatMap(run => run.events
+    .filter(event => event.type === "agent.init" && typeof event.version === "string")
+    .map(event => event.version as string));
+  environment.agent.version = versions.length ? [...new Set(versions)].join(",") : null;
   environment.model.resolvedVersions = [...new Set(runs.flatMap(run =>
-    run.events.filter(event => event.type === "model.usage" && typeof event.model === "string")
+    run.events.filter(event => ["model.usage", "agent.model"].includes(event.type) && typeof event.model === "string")
       .map(event => event.model as string)))].sort();
   environment.observations.modelDrift = environment.model.resolvedVersions.length > 1
     ? "detected" : "not-observed";

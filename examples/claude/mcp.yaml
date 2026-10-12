@@ -1,0 +1,27 @@
+version: 1
+kind: extension-impact
+subject:
+  runner:
+    protocol: claude-code
+    command: ["claude"]
+  model:
+    provider: claude-code
+    name: sonnet
+    maxTurns: 8
+candidate:
+  type: mcp
+  name: race-review
+  transport: stdio
+  command: ["node", "./fake-mcp.mjs"]
+  cwd: ..
+suite:
+  file: ./tasks.yaml
+execution:
+  repeats: 2
+  timeoutMs: 180000
+security:
+  envAllowlist: ["CLAUDE_CODE_OAUTH_TOKEN"]
+  maxOutputBytes: 4194304
+storage:
+  capture: redacted
+  output: ../../.agentlift/claude-mcp

@@ -97,6 +97,7 @@ export function analyzeReport(report: ImpactReport) {
   const candidateRate = summary.validPairs ? summary.candidateSuccesses / summary.validPairs : null;
   const model = report.environment?.model;
   const cost = (run: RunResult) => {
+    if (model?.provider === "claude-code") return tokenCount(run, "costUSD");
     const input = tokenCount(run, "inputTokens"), output = tokenCount(run, "outputTokens");
     if (input === null || output === null || model?.inputPricePerMillion === undefined ||
         model.outputPricePerMillion === undefined) return null;
@@ -151,6 +152,8 @@ export function analyzeReport(report: ImpactReport) {
       tokens: metric(run => tokenCount(run, "totalTokens")),
       costUSD: costs,
       candidateToolErrorRate: calls.length ? Math.max(0, calls.length - ok) / calls.length : null,
+      candidateSkillActivations: candidateRuns.flatMap(r => r.events)
+        .filter(e => e.type === "skill.activation").length,
     },
     pairs: pairs.map(({ baseline, candidate }) => ({
       caseId: baseline.caseId, repeat: baseline.repeat,
@@ -180,6 +183,7 @@ export function renderReport(report: ImpactReport, markdown = false): string {
     `Median tokens: ${show(metrics.tokens.baseline)} → ${show(metrics.tokens.candidate)}`,
     `Estimated cost change: ${show(metrics.costUSD.relativePct)}%`,
     `Candidate tool error rate: ${show(metrics.candidateToolErrorRate)}`,
+    ...(report.environment?.skill ? [`Observed candidate Skill tool calls: ${metrics.candidateSkillActivations}`] : []),
     `Infrastructure failures: ${summary.infrastructureFailures}`,
     ...analysis.reasons.map(reason => `- ${reason}`),
     "",

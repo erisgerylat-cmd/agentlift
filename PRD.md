@@ -11,17 +11,23 @@ Implementation checkpoint: `0.0.1-prototype` now delivers the core CLI workflow
 (`doctor`, `impact`, offline `report`, `compare`, `ci`). See
 [prototype acceptance guide](./PROTOTYPE.md) for runnable commands and current
 limits. Sections below include later Beta requirements; additional validators,
-LLM judges, container isolation, Skill evaluation and Web UI are not implemented
+LLM judges, container isolation and Web UI are not implemented
 in this prototype. Intervals use seeded case-cluster bootstrap and a case-level
 sign test; case-subgroup enablement is not automated.
+
+Claude Code checkpoint: basic Skill and stdio MCP paired evaluation is implemented,
+with temporary configuration, native tool traces and CLI usage/cost estimates.
+See [Claude Code acceptance](./CLAUDE-CODE.md). Offline contracts are verified;
+live Claude model calls await manual acceptance. Detailed Skill activation,
+conflict and context-overhead metrics below remain future requirements.
 
 ## 1. Executive Summary
 
 AgentLift is a local-first experiment tool that measures whether an Agent
 extension creates real net value.
 
-The first supported extension type is an MCP server. Skill evaluation follows
-after the MCP workflow is proven.
+The first supported extension type is an MCP server. Basic Skill evaluation now
+uses Claude Code as its first native host.
 
 The product answers one primary question:
 
@@ -1048,7 +1054,7 @@ Failure to close this loop by the end of W1 triggers a product-assumption
 review, not more framework construction. If external evidence arrives early,
 Beta may ship in W8; elapsed roadmap time is not a reason to add scope.
 
-Skill evaluation, native Agent adapters, and broad ecosystem integrations begin
+Broader Skill evaluation, additional native Agent adapters, and ecosystem integrations begin
 only after real MCP usage validates demand.
 
 ## 24. Success Metrics
@@ -1160,7 +1166,7 @@ Additional Skill metrics:
 - task-category lift;
 - model and Agent sensitivity.
 
-Skill support begins only after the MCP vertical workflow meets MVP acceptance
+Broader Skill support begins only after the MCP vertical workflow meets MVP acceptance
 criteria.
 
 ## 29. Glossary

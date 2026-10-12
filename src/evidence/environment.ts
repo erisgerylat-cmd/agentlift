@@ -43,14 +43,18 @@ async function commandIdentity(command: string[], cwd: string) {
       if ((await stat(file)).isFile()) files[argument] = digest(await readFile(file));
     } catch { /* PATH executables may not be directly addressable. */ }
   }
-  return { command, cwd, files, version: null };
+  return { command, cwd, files, version: null as string | null };
 }
 
 export async function lockEnvironment(config: LoadedImpactConfig, suite: LoadedTaskSuite) {
   const fixtures: Record<string, string> = {};
   for (const testCase of suite.cases) fixtures[testCase.id] = await fixtureDigest(testCase.fixture.path);
   const runtime = await commandIdentity(config.subject.runner.command, config.subject.runner.cwd);
-  const extension = await commandIdentity(config.candidate.command, config.candidate.cwd);
+  const extension = config.candidate.type === "mcp"
+    ? await commandIdentity(config.candidate.command, config.candidate.cwd)
+    : { command: [], cwd: config.candidate.cwd, files: {}, version: null };
+  const skill = config.candidate.type === "skill"
+    ? { name: config.candidate.name, digest: await fixtureDigest(config.candidate.path) } : undefined;
   const taskSuiteHash = digest(JSON.stringify(suite.cases.map(c => ({
     id: c.id, task: c.task, tags: c.tags, validators: c.validators, fixture: fixtures[c.id],
   }))));
@@ -64,16 +68,21 @@ export async function lockEnvironment(config: LoadedImpactConfig, suite: LoadedT
     },
     agent: runtime,
     mcp: extension,
+    ...(skill ? { skill } : {}),
     model: { ...config.subject.model, resolvedVersions: [] as string[] },
     experimentSpecHash: digest(await readFile(config.configPath)),
     taskSuiteHash,
     fixtures,
     // Excludes candidate identity and output directory: those may change in a historical comparison.
     comparisonKey: digest(JSON.stringify({
-      taskSuiteHash, runtime, model: config.subject.model,
+      taskSuiteHash, runtime, model: config.subject.model, protocol: config.subject.runner.protocol,
+      allowedTools: config.subject.runner.allowedTools,
       node: process.version, platform: process.platform, arch: process.arch,
     })),
-    adapters: { runtime: "generic-command@1", extension: "stdio-mcp@1" },
+    adapters: {
+      runtime: config.subject.runner.protocol === "claude-code" ? "claude-code@1" : "generic-command@1",
+      extension: config.candidate.type === "skill" ? "claude-skill@1" : "stdio-mcp@1",
+    },
     repeats: config.execution.repeats,
     seed: config.execution.seed,
     isolation: "process-only",

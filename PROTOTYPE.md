@@ -3,6 +3,9 @@
 本地 CLI 原型面向 MCP 增益实验，使用现有 Generic Command 和 OpenAI-compatible
 参考 Runner。所有外部命令都以当前用户权限运行；进程隔离不是容器沙箱。
 
+Claude Code 基础 Skill/MCP 接入及离线演示已补齐，具体运行步骤见
+[Claude Code 测试指南](./CLAUDE-CODE.zh-CN.md)；真实模型调用由人工验收验证。
+
 ## 一键人工验收
 
 版本：`0.0.1-prototype`。需要 Node.js 22+、npm；实际验收环境为 macOS。
@@ -133,7 +136,7 @@ node dist/cli.js ci --evidence .agentlift --max-cost-increase-pct=20
 
 ## 原型边界与反馈
 
-本次覆盖核心 CLI 流程。LLM Judge、其他验证器、Skill、多 Agent 原生 Adapter、
+本次覆盖核心 CLI 流程与 Claude Code 基础 Skill/MCP 接入。LLM Judge、其他验证器、其他 Agent Adapter、
 严格容器隔离、Web UI 和远程发布未纳入本原型。Agent/MCP 的未知版本标注为 `null`，
 缓存/限流标注为 `unknown`。证据包能离线重建报告，但不会打包完整私有仓库或凭证；
 重跑原实验仍需恢复输入文件及环境。`metadata` 模式不保留参数/结果正文，因此无法

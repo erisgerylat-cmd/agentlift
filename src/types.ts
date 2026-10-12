@@ -39,6 +39,7 @@ export interface RunStartMessage {
   mcpConfig: {
     servers: McpServerConfig[];
   } | null;
+  skillConfig?: { name: string; path: string };
 }
 
 export interface RunEvent {

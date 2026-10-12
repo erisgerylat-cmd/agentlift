@@ -1,7 +1,7 @@
 import { lstat, mkdir, readdir } from "node:fs/promises";
 import path from "node:path";
 
-export const RESERVED_ENV = /^(HOME|USERPROFILE|PATH|SHELL|TMP|TEMP|TMPDIR|XDG_.*|NODE_OPTIONS|NODE_PATH|LD_.*|DYLD_.*|GIT_.*)$/iu;
+export const RESERVED_ENV = /^(HOME|USERPROFILE|PATH|SHELL|TMP|TEMP|TMPDIR|XDG_.*|NODE_OPTIONS|NODE_PATH|LD_.*|DYLD_.*|GIT_.*|CLAUDE_CONFIG_DIR|CLAUDE_CODE_DISABLE_AUTO_MEMORY)$/iu;
 
 async function assertNoSymlinks(currentPath: string): Promise<void> {
   const entry = await lstat(currentPath);
