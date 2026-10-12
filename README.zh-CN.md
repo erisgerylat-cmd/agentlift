@@ -5,7 +5,7 @@
 **衡量 Agent 扩展带来的真实影响。**
 
 AgentLift 是一个本地优先的实验工具，用于比较同一个 Agent 在“未启用扩展”和
-“启用扩展”（即对配置变化前后效果的对比实现对配置改动价值的评估）两种条件下的任务表现，从而判断一个 MCP Server 或 Skill 是否真正
+“启用扩展”两种条件下的任务表现，从而判断一个 MCP Server 或 Skill 是否真正
 提高了任务成功率，以及这种提升是否值得新增的成本、耗时和风险。
 
 当前版本支持 stdio MCP，并以 Claude Code 为首个原生宿主支持基础 Skill 影响实验。
@@ -46,6 +46,7 @@ Claude Code 可分别运行“无扩展 vs Skill”和“无扩展 vs MCP”。�
 可选历史比较与 CI。工作区模式支持编辑代码并用确定性测试验收。
 
 - Generic Command Agent；
+- Claude Code 原生 Runtime，支持文本和显式配置工具的代码修改任务；
 - OpenAI-compatible 文本任务参考 Runner（本地 HTTP/stdio 联调已通过）；
 - stdio MCP Extension；
 - YAML/JSONL 任务集；
@@ -72,16 +73,35 @@ Claude Code 可分别运行“无扩展 vs Skill”和“无扩展 vs MCP”。�
 ### 安装并运行示例
 
 ```bash
-npm install
-npm run prototype
+npm ci
+npm run prototype:claude
 ```
 
-该命令自动启动本地模拟模型、连接真实 stdio 子进程，完成正常 MCP 与故意退化 MCP
-两组实验，校验离线报告、历史比较及 CI 门禁，然后关闭模型服务。无需配置 API Key。
+该命令使用离线 Claude CLI 替身与真实 stdio MCP 连接，完成正常及退化 Skill/MCP
+四组实验，校验报告重建、历史比较与 CI 门禁，无需安装 Claude 或配置 API Key。
+运行后打开 `.agentlift/claude-workflow/ACCEPTANCE.json` 查看报告位置。
+每组正常 Candidate `4/4`、退化 Candidate `2/4`，历史变化 `-50pp`，
+CI 为 PASS 和预期 FAIL。这些合成任务仅验证链路，不证明真实模型或扩展收益。
 
-运行后打开 `.agentlift/prototype/ACCEPTANCE.md`，可获得两份报告的位置。
-预期正常 Candidate `4/4`、退化 Candidate `2/4`，历史变化 `-50pp`；
-CI 分别显示 PASS 和预期 FAIL。这些合成任务仅验证链路，不证明真实 MCP 收益。
+OpenAI-compatible 离线原型仍可通过 `npm run prototype` 运行。
+
+### 使用真实 Claude Code
+
+安装官方 Claude Code，在终端配置 `ANTHROPIC_API_KEY`，或自行通过
+`claude setup-token` 生成 `CLAUDE_CODE_OAUTH_TOKEN`。运行使用临时 HOME 和 Claude
+配置，不自动继承个人交互登录；真实模型调用会产生费用。
+
+```bash
+npm run build
+node dist/cli.js workflow --config examples/claude/skill.yaml
+node dist/cli.js workflow --config examples/claude/mcp.yaml
+node dist/cli.js compare .agentlift/claude-skill .agentlift/claude-mcp
+```
+
+替换 Skill 路径或 MCP 命令，提供自己的 Fixture 和确定性验证器即可测试实际扩展。
+工作区模式可启用编辑工具并用项目测试验收。报告保留工具参数/结果差异、Token/成本、
+最终回答、文件变更哈希和标注任务触发/误触发率。`workflow` 支持历史 `--before`
+及与 `ci` 相同的显式阈值。具体配置见 [Claude Code 指南](./CLAUDE-CODE.zh-CN.md)。
 
 也可运行较小的 `npm run demo`，预期输出包括：
 
@@ -119,19 +139,16 @@ Observed delta: 50pp
 tasks.yaml
     |
     v
-AgentLift impact
-    |-- GenericCommandRuntime
-    |     启动 Agent、输入任务、收集 JSONL
-    |
-    `-- StdioMcpExtension
-          |-- Baseline: 禁用 MCP
-          `-- Candidate: 启用 MCP
-                    |
-                    v
-              确定性验证器
-                    |
-                    v
-              results.json
+AgentLift workflow / impact
+    |-- GenericCommandRuntime 或 ClaudeCodeRuntime
+    |-- StdioMcpExtension 或 ClaudeSkillExtension
+    |     Baseline: 禁用；Candidate: 启用
+    v
+确定性验证器
+    v
+可校验证据包 + 离线报告
+    v
+历史比较 + CI 门禁
 ```
 
 示例 Candidate 会执行真实的 MCP JSON-RPC 生命周期：
@@ -174,7 +191,8 @@ run.end
 AgentLift 会过滤 Runtime 重复产生的 `run.start`、`validation` 和 `run.end`，
 再生成顺序稳定的规范化事件。OpenAI-compatible 参考 Runner 额外输出 `model.usage`
 事件，记录 Provider 返回的 Token 数与模型身份；缺失指标为 `null`。复杂的语义
-Trace 对齐和文件变更事件尚未实现。简单工具序列与首个可观察差异已保存在
+Trace 对齐尚未实现；Claude Code 已输出 `file.change`、`agent.result` 和
+`skill.activation` 证据。简单工具序列与首个可观察差异已保存在
 `analysis.json`；Token 成本可根据显式单价估算。
 
 ## 配置文件
@@ -229,9 +247,12 @@ storage:
 | 字段 | 说明 |
 |---|---|
 | `subject.runner.command` | 启动 Generic Command Agent 的 argv 数组 |
-| `subject.runner.protocol` | 当前仅支持 `jsonl` |
+| `subject.runner.protocol` | `jsonl` 或 `claude-code` |
+| `subject.runner.resultMode` | Claude 使用 `text` 保存回答，`workspace` 验证文件修改 |
+| `subject.runner.tools` / `allowedTools` | Claude 可用工具与免交互授权规则 |
 | `subject.model` | 模型接口和模型身份；当前示例使用确定性 Fake Model |
 | `candidate.command` | 启动 stdio MCP Server 的 argv 数组 |
+| `candidate.path` | Skill 目录，包含 name 与配置匹配的 SKILL.md |
 | `candidate.envAllowlist` | 只传递给 Candidate MCP 的环境变量名称 |
 | `suite.file` | YAML 任务集路径，相对于配置文件解析 |
 | `execution.repeats` | 每个 Case、每个条件的重复次数 |
@@ -285,9 +306,12 @@ AgentLift 不直接在 fixture 中运行 Agent。每次运行都会创建独立�
 | `task_failure` | Runtime 正常退出且终态为 `failed`，或命令验证器以非零退出码拒绝结果 |
 | `infrastructure_failure` | 启动/输入失败、Runner 非零退出、超时、输出溢出、验证器被信号终止，或 JSONL 协议错误 |
 
-Runner 必须输出唯一的最终 `run.end` 事件，`status` 只能是 `completed` 或 `failed`。
+Generic Command Runner 必须输出唯一的最终 `run.end` 事件，`status` 只能是 `completed` 或 `failed`。
 终态缺失、重复、状态非法，或终态后继续输出事件，都属于协议故障。Runner 声明任务
 失败时应以退出码零完成协议；进程非零退出被解释为运行基础设施故障。
+
+Claude Runtime 会转换原生 stream-json 终态；有效的轮次/预算耗尽为任务失败，
+即使进程以数值非零退出。认证/API 故障仍排除整对实验。
 
 进程或协议故障不会中断后续 Case。故障发生前已解析的事件仍保留；Runtime 故障时，
 跳过该次运行的验证器，并写入 `validation` 事件说明跳过原因。
@@ -403,6 +427,7 @@ src/
 ├── cli.ts
 ├── config.ts
 ├── impact.ts
+├── workflow.ts
 ├── process.ts
 ├── security.ts
 ├── types.ts
@@ -411,15 +436,25 @@ src/
 │   └── openai-compatible.ts
 ├── runners/
 │   ├── openai.ts
+│   ├── mcp-launch.ts
 │   └── mcp-tools.ts
 ├── analysis/
-│   └── summary.ts
+│   ├── summary.ts
+│   ├── report.ts
+│   ├── extensions.ts
+│   └── commands.ts
+├── evidence/
+│   ├── environment.ts
+│   ├── bundle.ts
+│   └── workspace.ts
 ├── runtimes/
 │   ├── runtime-adapter.ts
-│   └── generic-command.ts
+│   ├── generic-command.ts
+│   └── claude-code.ts
 └── extensions/
     ├── extension-adapter.ts
-    └── stdio-mcp.ts
+    ├── stdio-mcp.ts
+    └── claude-skill.ts
 
 examples/
 ├── agentlift.yaml
@@ -428,9 +463,11 @@ examples/
 ├── tasks.yaml
 ├── fake-agent.mjs
 ├── fake-mcp.mjs
+├── claude/
 └── fixture/
 
 test/
+├── claude-code.test.ts
 ├── failure-evidence.test.ts
 ├── openai-runner.test.ts
 └── impact.test.ts
@@ -461,6 +498,9 @@ npm run check
 
 # 运行离线示例
 npm run demo
+
+# Claude 正常/退化 Skill/MCP 完整闭环验收
+npm run prototype:claude
 ```
 
 当前测试覆盖：
@@ -478,10 +518,13 @@ npm run demo
 - 重复 Case ID 拒绝及临时工作区清理；
 - 参考 Runner 的真实 HTTP/stdio 成对实验、工具参数校验和凭证隔离；
 - Provider 失败、请求超时、响应大小限制、重定向拒绝和工具循环终止。
+- Claude Skill 注入、MCP 凭证隔离、代码修改验收、文件证据和扩展触发门禁。
+
+完整构建及 32 项自动化测试、原有 Demo 和 Claude 闭环验收已通过。
 
 ## 当前限制
 
-- 只支持 Generic Command Runtime；
+- 支持 Generic Command 和 Claude Code Runtime；
 - 只支持 stdio MCP；
 - 支持 YAML/JSONL 任务集，确定性验证器目前为命令验证器；
 - 已实现 Wilson 与 Case 聚类 Bootstrap，正式建议另用 Case 级符号检验；
@@ -490,7 +533,7 @@ npm run demo
 - 已在 macOS 验证，当前环境未执行 Linux 验收；
 - 进程隔离适用于可信命令，不等同于操作系统文件/网络沙箱；
 - LLM Judge、更多验证器、容器后端、Web UI 属于后续扩展；
-- 已提供 Claude Code 原生读取/文本任务 Adapter；Codex、Qoder 和 Trae 尚未接入；
+- Claude Code 支持文本/工作区编辑模式；Codex、Qoder 和 Trae 尚未接入；
 - Skill 影响评估目前仅支持 Claude Code，真实模型调用待人工验收。
 
 ## 路线图摘要

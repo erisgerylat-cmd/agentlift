@@ -12,7 +12,8 @@ MCP server or Claude Code Skill improves task outcomes enough to justify its cos
 `0.0.1-prototype`: a runnable local CLI for manual acceptance. The core workflow
 is `doctor → impact → report → compare → ci`. Includes YAML/JSONL suites,
 independent evidence bundles, offline reports, conservative statistics, tool
-sequence differences and an OpenAI-compatible text runner.
+sequence differences, an OpenAI-compatible text runner and a native Claude Code
+runtime for text and code-editing tasks.
 
 See [PROTOTYPE.md](./PROTOTYPE.md) for the full acceptance guide (Chinese).
 
@@ -34,16 +35,19 @@ Requirements:
 - npm
 
 ```bash
-npm install
-npm run prototype
+npm ci
+npm run prototype:claude
 ```
 
-This starts a local simulated model, runs working and intentionally regressed
-MCP scenarios, verifies reports/comparison/CI, then shuts down the server. No
-API credentials are needed. Open `.agentlift/prototype/ACCEPTANCE.md` for report paths.
-Expected results: working Candidate `4/4`, regressed Candidate `2/4`, historical
-change `-50pp`, CI `PASS` and expected `FAIL`. Both are small synthetic suites
-and keep decision `INCONCLUSIVE`.
+This uses an offline Claude CLI fixture and real stdio MCP connections to verify
+working and regressed Skill/MCP experiments, reports, historical comparisons and
+CI. No Claude installation or API credentials are needed. Open
+`.agentlift/claude-workflow/ACCEPTANCE.json` for report paths. Each working
+Candidate scores `4/4`, each regressed Candidate `2/4`; historical change is
+`-50pp`, with CI `PASS` and expected `FAIL`. Synthetic results verify integration;
+they do not measure live Claude quality and keep decision `INCONCLUSIVE`.
+
+For the OpenAI-compatible offline prototype, run `npm run prototype`.
 
 For the smaller deterministic smoke experiment, run `npm run demo`:
 
@@ -71,7 +75,31 @@ node dist/cli.js ci --evidence .agentlift/prototype/working --min-success-delta-
 `report` supports `--json` and `--output`; `compare` checks task/fixture/Agent/model
 compatibility. CI uses explicit thresholds, returns 0 for pass, 1 for violation
 and 2 for unavailable evidence or invalid input. The default minimum lift is 0pp.
-Ctrl+C interrupts `impact` and cleans its running process group and workspace.
+Ctrl+C interrupts `impact` or `workflow` and cleans its running process group and workspace.
+
+## Use Claude Code
+
+Install official Claude Code and set `ANTHROPIC_API_KEY`, or allowlisted
+`CLAUDE_CODE_OAUTH_TOKEN` generated through your own `claude setup-token`.
+Runs use temporary HOME and Claude configuration; personal interactive login
+is not automatically inherited. Live calls incur model costs.
+
+```bash
+npm run build
+node dist/cli.js workflow --config examples/claude/skill.yaml
+node dist/cli.js workflow --config examples/claude/mcp.yaml
+node dist/cli.js compare .agentlift/claude-skill .agentlift/claude-mcp
+```
+
+Replace the candidate Skill path or MCP command and provide your own fixture
+and deterministic validators. Workspace mode enables explicitly configured
+editing tools and validates modified code. Reports retain tool/parameter
+differences, Token/cost estimates, final answers, file hashes and labeled
+activation/control rates. `workflow` supports historical `--before` evidence
+and the same explicit gate thresholds as `ci`.
+
+See [Claude Code setup and code-task guide](./CLAUDE-CODE.md). Live Claude calls
+await manual acceptance; managed settings and CLI versions can affect results.
 
 ## OpenAI-compatible Reference Runner
 
@@ -132,11 +160,15 @@ protocol failures are recorded per run. Remaining runs continue, and the report
 retains events parsed before the failure. Validators are skipped when the
 Runtime has an infrastructure failure.
 
-The runner must exit with code zero and emit exactly one final `run.end` event,
+The Generic Command runner must exit with code zero and emit exactly one final `run.end` event,
 with status `completed` or `failed`. An explicit `failed` status or a nonzero
 validator exit is a task failure. A nonzero runner exit, a validator killed by a
 signal, or a malformed/missing/duplicate terminal event is an infrastructure
 failure. Validator timeouts and output overflow also invalidate a run.
+
+The Claude Code runtime translates its native stream-json result into this
+contract. Valid turn/budget exhaustion is a task failure, including numeric
+nonzero exits; authentication/API failures invalidate the pair.
 
 Success counts and the observed delta use only **valid pairs**: both conditions
 for the same case and repeat must be free of infrastructure failures.
@@ -157,17 +189,16 @@ silently converted to task failures.
 tasks.yaml
     |
     v
-AgentLift impact runner
-    |-- GenericCommandRuntime: launch Agent and collect JSONL
-    `-- StdioMcpExtension
-        |-- Baseline: disabled
-        `-- Candidate: enabled
-            |
-            v
-      Deterministic validators
-            |
-            v
-       results.json
+AgentLift workflow / impact
+    |-- GenericCommandRuntime or ClaudeCodeRuntime
+    |-- StdioMcpExtension or ClaudeSkillExtension
+    |     Baseline: disabled; Candidate: enabled
+    v
+Deterministic validators
+    v
+Checksummed evidence + offline report
+    v
+Historical comparison + CI gate
 ```
 
 The example Candidate performs a real MCP JSON-RPC exchange:
@@ -187,13 +218,16 @@ the Agent workspace.
 npm run build
 npm test
 npm run check
+npm run demo
+npm run prototype:claude
 npm run prototype
 ```
 
 Validated on macOS; Linux is a target but has not been verified in this environment.
 Process isolation requires trusted commands and does not restrict host filesystem
-or network access. Container isolation, LLM judges, additional validator types,
-Skills are supported through Claude Code; Web UI remains outside this prototype. Live paid-provider
-compatibility still requires manual testing.
+or network access. Container isolation, LLM judges, additional validator types
+and Web UI remain future work. Skills currently require Claude Code; live
+paid-provider compatibility still requires manual testing. The full build and
+32 automated tests, original demo and Claude workflow acceptance have passed.
 
 Product scope and acceptance criteria are defined in [PRD.md](./PRD.md).
